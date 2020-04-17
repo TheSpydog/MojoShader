@@ -13,6 +13,7 @@ OPTION(PROFILE_ARB1_NV "Build MojoShader with support for the ARB1_NV profile" O
 OPTION(PROFILE_METAL "Build MojoShader with support for the Metal profile" ON)
 OPTION(PROFILE_SPIRV "Build MojoShader with support for the SPIR-V profile" ON)
 OPTION(PROFILE_GLSPIRV "Build MojoShader with support for the ARB_gl_spirv profile" ON)
+OPTION(PROFILE_VULKAN "Build MojoShader with support for the VULKAN profile" ON)
 OPTION(EFFECT_SUPPORT "Build MojoShader with support for Effect framework files" ON)
 OPTION(COMPILER_SUPPORT "Build MojoShader with support for HLSL source files" OFF)
 OPTION(FLIP_VIEWPORT "Build MojoShader with the ability to flip the GL viewport" OFF)
@@ -138,6 +139,9 @@ ENDIF(NOT PROFILE_SPIRV)
 IF(NOT PROFILE_GLSPIRV)
     ADD_DEFINITIONS(-DSUPPORT_PROFILE_GLSPIRV=0)
 ENDIF(NOT PROFILE_GLSPIRV)
+if (NOT PROFILE_VULKAN)
+    ADD_DEFINITIONS(-DSUPPORT_PROFILE_VULKAN=0)
+ENDIF(NOT PROFILE_VULKAN)
 
 IF(EFFECT_SUPPORT)
     IF(UNIX)
@@ -164,6 +168,7 @@ ADD_LIBRARY(mojoshader
     mojoshader_opengl.c
     mojoshader_metal.c
     mojoshader_d3d11.c
+    mojoshader_vulkan.c
     profiles/mojoshader_profile_arb1.c
     profiles/mojoshader_profile_bytecode.c
     profiles/mojoshader_profile_d3d.c
@@ -171,6 +176,7 @@ ADD_LIBRARY(mojoshader
     profiles/mojoshader_profile_glsl.c
     profiles/mojoshader_profile_metal.c
     profiles/mojoshader_profile_spirv.c
+    profiles/mojoshader_profile_vulkan.c
     profiles/mojoshader_profile_common.c
 )
 IF(EFFECT_SUPPORT)
@@ -263,4 +269,3 @@ IF(COMPILER_SUPPORT)
 ENDIF(COMPILER_SUPPORT)
 
 # End of CMakeLists.txt ...
-
