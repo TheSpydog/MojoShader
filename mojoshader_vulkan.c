@@ -10,30 +10,55 @@
 #define __MOJOSHADER_INTERNAL__ 1
 #include "mojoshader_internal.h"
 
-typedef struct MOJOSHADER_vkUniformBuffer MOJOSHADER_vkUniformBuffer;
-typedef struct MOJOSHADER_vkShader
-{
-    const MOJOSHADER_parseData *parseData;
-    MOJOSHADER_vkUniformBuffer *ubo;
-    int numInternalBuffers;
-} MOJOSHADER_vkShader;
+#include "vulkan.h"
 
-// Error state...
-static char error_buffer[1024] = { '\0' };
+/* In case this needs to be exported in a certain way... */
+#ifdef _WIN32 /* Windows OpenGL uses stdcall */
+#define VKAPIENTRY __stdcall
+#else
+#define VKAPIENTRY
+#endif
 
-static void set_error(const char *str)
-{
-    snprintf(error_buffer, sizeof (error_buffer), "%s", str);
-} // set_error
+#define VULKAN_DEVICE_FUNCTION(ext, ret, func, params) \
+	typedef ret (VKAPIENTRY *vkfntype_##func) params;
+#include "mojoshader_vulkan_device_funcs.h"
+#undef VULKAN_DEVICE_FUNCTION
 
-static inline void out_of_memory(void)
-{
-    set_error("out of memory");
-} // out_of_memory
-
-#ifdef MOJOSHADER_EFFECT_SUPPORT
+ typedef void *(MOJOSHADERCALL *MOJOSHADER_vkGetDeviceProcAddress)(const char *fnname, void *data);
 
 /* Structs */
+
+typedef struct MOJOSHADER_vkBufferWrapper
+{
+    VkBuffer buffer;
+    VkDeviceMemory device_memory;
+    VkDeviceSize offset;
+    VkDeviceSize size;
+    void **data;
+} MOJOSHADER_vkBufferWrapper;
+
+typedef struct MOJOSHADER_vkUniformBuffer
+{
+    int bufferSize;
+    MOJOSHADER_vkBufferWrapper **internalBuffers;
+    VkDeviceSize internalBufferSize;
+    VkDeviceSize internalOffset;
+    int currentFrame;
+    int inUse;
+} MOJOSHADER_vkUniformBuffer;
+
+/* Max entries for each register file type */
+#define MAX_REG_FILE_F 8192
+#define MAX_REG_FILE_I 2047
+#define MAX_REG_FILE_B 2047
+
+typedef struct MOJOSHADER_vkShader
+{
+    VkShaderModule shaderModule;
+    const MOJOSHADER_parseData *parseData;
+    MOJOSHADER_vkUniformBuffer *ubo;
+    uint32 refcount;
+} MOJOSHADER_vkShader;
 
 typedef struct MOJOSHADER_vkEffect
 {
@@ -51,152 +76,624 @@ typedef struct MOJOSHADER_vkEffect
     MOJOSHADER_vkShader *prev_frag;
 } MOJOSHADER_vkEffect;
 
-MOJOSHADER_vkEffect *MOJOSHADER_vkCompileEffect(MOJOSHADER_effect *effect,
-                                                  void *vkDevice,
-                                                  int numBackingBuffers)
+typedef struct MOJOSHADER_vkContext
 {
-    int i;
-    MOJOSHADER_malloc m = effect->malloc;
-    MOJOSHADER_free f = effect->free;
-    void *d = effect->malloc_data;
-    int current_shader = 0;
-    int current_preshader = 0;
-    int src_len = 0;
+    VkInstance *instance;
+    VkDevice *logical_device;
+    PFN_vkGetDeviceProcAddr device_proc_lookup;
 
-    MOJOSHADER_vkEffect *retval = (MOJOSHADER_vkEffect *) m(sizeof (MOJOSHADER_vkEffect), d);
-    if (retval == NULL)
-    {
-        out_of_memory();
+    int frames_in_flight;
+
+    MOJOSHADER_malloc malloc_fn;
+    MOJOSHADER_free free_fn;
+    void *malloc_data;
+
+    /* FIXME: these are freaking huge */
+    float vs_reg_file_f[MAX_REG_FILE_F * 4];
+    int vs_reg_file_i[MAX_REG_FILE_I * 4];
+    uint8_t vs_reg_file_b[MAX_REG_FILE_B * 4];
+    float ps_reg_file_f[MAX_REG_FILE_F * 4];
+    int ps_reg_file_i[MAX_REG_FILE_I * 4];
+    uint8_t ps_reg_file_b[MAX_REG_FILE_B * 4];
+
+    MOJOSHADER_vkUniformBuffer **buffersInUse;
+    int bufferArrayCapacity;
+    int buffersInUseCount;
+
+    MOJOSHADER_vkShader *vertexShader;
+    MOJOSHADER_vkShader *pixelShader;
+
+    uint32_t graphics_queue_family_index;
+    uint32_t memory_type_index;
+
+    #define VULKAN_DEVICE_FUNCTION(ext, ret, func, params) \
+        vkfntype_##func func;
+    #include "mojoshader_vulkan_device_funcs.h"
+    #undef VULKAN_DEVICE_FUNCTION
+} MOJOSHADER_vkContext;
+
+static MOJOSHADER_vkContext *ctx = NULL;
+
+// Error state...
+static char error_buffer[1024] = { '\0' };
+
+static void set_error(const char *str)
+{
+    snprintf(error_buffer, sizeof (error_buffer), "%s", str);
+} // set_error
+
+static inline void out_of_memory(void)
+{
+    set_error("out of memory");
+} // out_of_memory
+
+#ifdef MOJOSHADER_EFFECT_SUPPORT
+
+/* UBO funcs */
+
+static VkDeviceSize next_highest_alignment(VkBuffer *buffer, int n)
+{
+    VkMemoryRequirements memory_requirements;
+    ctx->vkGetBufferMemoryRequirements(
+        *ctx->logical_device,
+        *buffer,
+        &memory_requirements
+    );
+
+    VkDeviceSize align = memory_requirements.alignment;
+    return align * ((n + align - 1) / align);
+}
+
+static void free_buffer_wrapper(MOJOSHADER_vkBufferWrapper *buffer)
+{
+    ctx->vkFreeMemory(
+        *ctx->logical_device,
+        buffer->device_memory,
+        NULL
+    );
+
+    ctx->vkDestroyBuffer(
+        *ctx->logical_device,
+        buffer->buffer,
+        NULL
+    );
+
+    ctx->free_fn(buffer->data, ctx->malloc_data);
+    ctx->free_fn(buffer, ctx->malloc_data);
+}
+
+static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
+    MOJOSHADER_vkUniformBuffer *ubo,
+    int frame
+) {
+    VkResult vulkanResult;
+
+    MOJOSHADER_vkBufferWrapper *oldBuffer = ubo->internalBuffers[frame];
+
+    MOJOSHADER_vkBufferWrapper *newBuffer = ctx->malloc_fn(
+        sizeof(MOJOSHADER_vkBufferWrapper), ctx->malloc_data
+    );
+
+    newBuffer->data = ctx->malloc_fn(
+        ubo->internalBufferSize, ctx->malloc_data
+    );
+
+    newBuffer->size = ubo->internalBufferSize;
+    newBuffer->offset = 0; /* TODO: is this correct? */
+
+    VkBufferCreateInfo buffer_create_info = {
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+    };
+
+    buffer_create_info.flags = 0;
+    buffer_create_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    buffer_create_info.size = ubo->internalBufferSize;
+    buffer_create_info.queueFamilyIndexCount = 1;
+    buffer_create_info.pQueueFamilyIndices = &ctx->graphics_queue_family_index;
+
+    vulkanResult = ctx->vkCreateBuffer(
+        *ctx->logical_device,
+        &buffer_create_info,
+        NULL,
+        &newBuffer->buffer
+    );
+    
+    if (vulkanResult != VK_SUCCESS) {
+        set_error("error creating VkBuffer in create_ubo_backing_buffer");
         return NULL;
-    } // if
-    memset(retval, '\0', sizeof (MOJOSHADER_vkEffect));
+    }
 
-    // Count the number of shaders before allocating
-    for (i = 0; i < effect->object_count; i++)
+    VkMemoryAllocateInfo allocate_info = {
+        VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+    };
+
+    allocate_info.allocationSize = ubo->bufferSize;
+    allocate_info.memoryTypeIndex = ctx->memory_type_index;
+
+    vulkanResult = ctx->vkAllocateMemory(
+        *ctx->logical_device,
+        &allocate_info,
+        NULL,
+        &newBuffer->device_memory
+    );
+
+    /* there is no way to access contents of a VkBuffer directly...
+     * we have to wrap the VkBuffer handle and data and copy it
+     */
+    if (oldBuffer != NULL)
     {
-        MOJOSHADER_effectObject *object = &effect->objects[i];
-        if (object->type == MOJOSHADER_SYMTYPE_PIXELSHADER
-         || object->type == MOJOSHADER_SYMTYPE_VERTEXSHADER)
+        vulkanResult = ctx->vkMapMemory(
+            *ctx->logical_device,
+            newBuffer->device_memory,
+            oldBuffer->offset,
+            oldBuffer->size,
+            0,
+            oldBuffer->data
+        );
+
+        newBuffer->offset = oldBuffer->offset;
+        newBuffer->size = oldBuffer->size;
+
+        memcpy(
+            newBuffer->data,
+            oldBuffer->data,
+            oldBuffer->size
+        );
+
+        if (vulkanResult != VK_SUCCESS)
         {
-            if (object->shader.is_preshader)
-                retval->num_preshaders++;
-            else
-            {
-                retval->num_shaders++;
-                src_len += object->shader.shader->output_len;
-            } // else
-        } // if
-    } // for
-
-    // Alloc shader source buffer
-    char *shader_source = (char *) m(src_len + 1, d);
-    memset(shader_source, '\0', src_len + 1);
-    int src_pos = 0;
-
-    // Copy all the source text into the buffer
-    for (i = 0; i < effect->object_count; i++)
-    {
-        MOJOSHADER_effectObject *object = &effect->objects[i];
-        if (object->type == MOJOSHADER_SYMTYPE_PIXELSHADER
-         || object->type == MOJOSHADER_SYMTYPE_VERTEXSHADER)
-        {
-            if (!object->shader.is_preshader)
-            {
-                int output_len = object->shader.shader->output_len;
-                memcpy(&shader_source[src_pos], object->shader.shader->output, output_len);
-                src_pos += output_len;
-            } // if
-        } // if
-    } // for
-
-    // Handle texcoord0 -> point_coord conversion
-    if (strstr(shader_source, "[[point_size]]"))
-    {
-        // !!! FIXME: This assumes all texcoord0 attributes in the effect are
-        // !!! FIXME:  actually point coords! It ain't necessarily so! -caleb
-        const char *repl = "[[  point_coord  ]]";
-        char *ptr;
-        while ((ptr = strstr(shader_source, "[[user(texcoord0)]]")))
-        {
-            memcpy(ptr, repl, strlen(repl));
-
-            // float4 -> float2
-            int spaces = 0;
-            while (spaces < 2)
-                if (*(ptr--) == ' ')
-                    spaces++;
-            memcpy(ptr, "2", sizeof(char));
-        } // while
-    } // if
-
-    // Alloc shader information
-    retval->shaders = (MOJOSHADER_vkShader *) m(retval->num_shaders * sizeof (MOJOSHADER_vkShader), d);
-    if (retval->shaders == NULL)
-    {
-        f(retval, d);
-        out_of_memory();
-        return NULL;
-    } // if
-    memset(retval->shaders, '\0', retval->num_shaders * sizeof (MOJOSHADER_vkShader));
-    retval->shader_indices = (unsigned int *) m(retval->num_shaders * sizeof (unsigned int), d);
-    if (retval->shader_indices == NULL)
-    {
-        f(retval->shaders, d);
-        f(retval, d);
-        out_of_memory();
-        return NULL;
-    } // if
-    memset(retval->shader_indices, '\0', retval->num_shaders * sizeof (unsigned int));
-
-    // Alloc preshader information
-    if (retval->num_preshaders > 0)
-    {
-        retval->preshader_indices = (unsigned int *) m(retval->num_preshaders * sizeof (unsigned int), d);
-        if (retval->preshader_indices == NULL)
-        {
-            f(retval->shaders, d);
-            f(retval->shader_indices, d);
-            f(retval, d);
-            out_of_memory();
+            set_error("error copying memory in create_ubo_backing_buffer");
             return NULL;
-        } // if
-        memset(retval->preshader_indices, '\0', retval->num_preshaders * sizeof (unsigned int));
+        }
+
+        free_buffer_wrapper(oldBuffer);
     } // if
 
-    /* TODO: create shader modules here */
-    /* FIXME: THIS CODE IS NOT VALID */
-    // Run through the shaders again, tracking the object indices
-    for (i = 0; i < effect->object_count; i++)
+    return newBuffer;
+} // create_ubo_backing_buffer
+
+static MOJOSHADER_vkUniformBuffer *create_ubo(
+    MOJOSHADER_vkShader *shader,
+    MOJOSHADER_malloc m, void* d
+) {
+    int uniformCount = shader->parseData->uniform_count;
+    if (uniformCount == 0)
     {
-        MOJOSHADER_effectObject *object = &effect->objects[i];
-        if (object->type == MOJOSHADER_SYMTYPE_PIXELSHADER
-         || object->type == MOJOSHADER_SYMTYPE_VERTEXSHADER)
+        return NULL;
+    }
+
+    /* how big is the buffer? */
+    int buflen = 0;
+    for (int i = 0; i < uniformCount; i++)
+    {
+        int arrayCount = shader->parseData->uniforms[i].array_count;
+        int uniformSize = 16;
+        if (shader->parseData->uniforms[i].type == MOJOSHADER_UNIFORM_BOOL)
         {
-            if (object->shader.is_preshader)
-            {
-                retval->preshader_indices[current_preshader++] = i;
-                continue;
-            } // if
+            uniformSize = 1;
+        }
+        buflen += (arrayCount ? arrayCount : 1) * uniformSize;
+    } // for 
 
-            MOJOSHADER_vkShader *curshader = &retval->shaders[current_shader];
-            curshader->parseData = object->shader.shader;
-            curshader->numInternalBuffers = numBackingBuffers;
-            curshader->ubo = create_ubo(curshader, vkDevice, m, d);
+    MOJOSHADER_vkUniformBuffer *buffer;
+    buffer = (MOJOSHADER_vkUniformBuffer*) m(sizeof(MOJOSHADER_vkUniformBuffer*), d);
+    buffer->internalBufferSize = buffer->bufferSize * 16;
+    buffer->internalBuffers = m(ctx->frames_in_flight * sizeof(MOJOSHADER_vkBufferWrapper*), d);
+    buffer->internalOffset = 0;
+    buffer->inUse = 0;
+    buffer->currentFrame = 0;
 
-            retval->shader_indices[current_shader] = i;
-
-            current_shader++;
-        } // if
+    for (int i = 0; i < ctx->frames_in_flight; i++)
+    {
+        buffer->internalBuffers[i] = NULL;
+        buffer->internalBuffers[i] = create_ubo_backing_buffer(buffer, i);
     } // for
 
-    retval->effect = effect;
-    return retval;
+    /* could the buffers have different alignment requirements somehow? */
+    buffer->bufferSize = next_highest_alignment(&buffer->internalBuffers[0]->buffer, buflen);
+
+    return buffer;
+} // create_ubo
+
+static void *get_uniform_buffer(MOJOSHADER_vkShader *shader)
+{
+    if (shader == NULL || shader->ubo == NULL)
+    {
+        return NULL;
+    }
+
+    return shader->ubo->internalBuffers[shader->ubo->currentFrame];
+} // get_uniform_buffer
+
+static int get_uniform_offset(MOJOSHADER_vkShader *shader)
+{
+    if (shader == NULL || shader->ubo == NULL)
+    {
+        return 0;
+    }
+
+    return shader->ubo->internalOffset;
+} // get_uniform_offset
+
+static void predraw_ubo(MOJOSHADER_vkUniformBuffer *ubo)
+{
+    if (!ubo->inUse)
+    {
+        ubo->inUse = 1;
+        ctx->buffersInUse[ctx->buffersInUseCount++] = ubo;
+
+        /* allocate more memory if needed */
+        if (ctx->buffersInUseCount >= ctx->bufferArrayCapacity)
+        {
+            int oldlen = ctx->bufferArrayCapacity;
+            ctx->bufferArrayCapacity *= 2;
+            MOJOSHADER_vkUniformBuffer **tmp;
+            tmp = (MOJOSHADER_vkUniformBuffer**) ctx->malloc_fn(
+                ctx->bufferArrayCapacity * sizeof(MOJOSHADER_vkUniformBuffer*),
+                ctx->malloc_data
+            );
+            memcpy(tmp, ctx->buffersInUse, oldlen * sizeof(MOJOSHADER_vkUniformBuffer*));
+            ctx->free_fn(ctx->buffersInUse, ctx->malloc_data);
+            ctx->buffersInUse = tmp;
+        }
+        return;
+    } // if
+
+    ubo->internalOffset += ubo->bufferSize;
+
+    VkDeviceSize buflen = ubo->internalBuffers[ubo->currentFrame]->size;
+
+    if (ubo->internalOffset >= buflen)
+    {
+        /* allocate more memory if needed */
+        if (ubo->internalOffset >= ubo->internalBufferSize)
+        {
+            ubo->internalBufferSize *= 2;
+        }
+
+        ubo->internalBuffers[ubo->currentFrame] =
+            create_ubo_backing_buffer(ubo, ubo->currentFrame);
+    } // if
+} // predraw_ubo
+
+static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
+{
+    if (shader == NULL || shader->ubo == NULL)
+    {
+        return;
+    }
+
+    float *regF; int *regI; uint8_t *regB;
+    
+    if (shader->parseData->shader_type == MOJOSHADER_TYPE_VERTEX)
+    {
+        regF = ctx->vs_reg_file_f;
+        regI = ctx->vs_reg_file_i;
+        regB = ctx->vs_reg_file_b;
+    }
+    else
+    {
+        regF = ctx->ps_reg_file_f;
+        regI = ctx->ps_reg_file_i;
+        regB = ctx->ps_reg_file_b;
+    }
+
+    predraw_ubo(shader->ubo);
+    MOJOSHADER_vkBufferWrapper *buf = shader->ubo->internalBuffers[shader->ubo->currentFrame];
+    void *contents = buf->data + shader->ubo->internalOffset;
+
+    int offset = 0;
+    for (int i = 0; i < shader->parseData->uniform_count; i++)
+    {
+        int index = shader->parseData->uniforms[i].index;
+        int arrayCount = shader->parseData->uniforms[i].array_count;
+        int size = arrayCount ? arrayCount : 1;
+
+        switch (shader->parseData->uniforms[i].type)
+        {
+            case MOJOSHADER_UNIFORM_FLOAT:
+                memcpy(
+                    contents + (offset * 16),
+                    &regF[4 * index],
+                    size * 16
+                );
+                break;
+
+            case MOJOSHADER_UNIFORM_INT:
+                memcpy(
+                    contents + (offset * 16),
+                    &regI[4 * index],
+                    size * 16
+                );
+                break;
+
+            case MOJOSHADER_UNIFORM_BOOL:
+                memcpy(
+                    contents + offset,
+                    &regB[index],
+                    size
+                );
+                break;
+
+            default:
+                set_error(
+                    "SOMETHING VERY WRONG HAPPENED WHEN UPDATING UNIFORMS"
+                );
+                assert(0);
+                break;
+        } // switch
+
+        offset += size;
+    } // for
+} // update_uniform_buffer
+
+static void dealloc_ubo(MOJOSHADER_vkShader *shader)
+{
+    if (shader == NULL || shader->ubo == NULL) { return; }
+
+    for (int i = 0; i < ctx->frames_in_flight; i++)
+    {
+        free_buffer_wrapper(shader->ubo->internalBuffers[i]);
+        shader->ubo->internalBuffers[i] = NULL;
+    }
+
+    ctx->free_fn(shader->ubo->internalBuffers, ctx->malloc_data);
+    ctx->free_fn(shader->ubo, ctx->malloc_data);
+} // dealloc_ubo
+
+/* Private funcs */
+
+static void lookup_entry_points(
+    MOJOSHADER_vkContext *ctx
+) {
+    #define VULKAN_DEVICE_FUNCTION(ext, ret, func, params) \
+        ctx->func = (vkfntype_##func) ctx->device_proc_lookup(*ctx->logical_device, #func); 
+    #include "mojoshader_vulkan_device_funcs.h"
+    #undef VULKAN_DEVICE_FUNCTION
+} // lookup_entry_points
+
+static int shader_bytecode_len(MOJOSHADER_vkShader *shader)
+{
+    return shader->parseData->output_len - sizeof(SpirvPatchTable);
+}
+
+static void delete_shader(
+    VkShaderModule shaderModule
+) {
+    ctx->vkDestroyShaderModule(
+        *ctx->logical_device,
+        shaderModule,
+        NULL
+    );
+}
+
+/* Public API */
+
+MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
+    VkInstance *instance,
+    VkDevice *logical_device,
+    int frames_in_flight,
+    PFN_vkGetDeviceProcAddr lookup,
+    uint32_t graphics_queue_family_index,
+    uint32_t memory_type_index,
+    MOJOSHADER_malloc m, MOJOSHADER_free f,
+    void *malloc_d
+) {
+    assert(ctx == NULL);
+
+    if (m == NULL) m = MOJOSHADER_internal_malloc;
+    if (f == NULL) f = MOJOSHADER_internal_free;
+
+    ctx = (MOJOSHADER_vkContext *) m(sizeof(MOJOSHADER_vkContext), malloc_d);
+    if (ctx == NULL)
+    {
+        out_of_memory();
+        goto init_fail;
+    }
+
+    memset(ctx, '\0', sizeof(MOJOSHADER_vkContext));
+    ctx->malloc_fn = m;
+    ctx->free_fn = f;
+    ctx->malloc_data = malloc_d;
+
+    ctx->instance = instance;
+    ctx->logical_device = logical_device;
+    ctx->device_proc_lookup = lookup;
+    ctx->frames_in_flight = frames_in_flight;
+    ctx->graphics_queue_family_index = graphics_queue_family_index;
+    ctx->memory_type_index = memory_type_index;
+
+    lookup_entry_points(ctx);
+
+    ctx->bufferArrayCapacity = 32;
+    ctx->buffersInUse = ctx->malloc_fn(
+        ctx->bufferArrayCapacity * sizeof(MOJOSHADER_vkUniformBuffer*),
+        ctx->malloc_data
+    );
+
+    return ctx;
+
+init_fail:
+    if (ctx != NULL)
+    {
+        f(ctx, malloc_d);
+    }
+    return NULL;
+} // MOJOSHADER_vkCreateContext
+
+void MOJOSHADER_vkMakeContextCurrent(MOJOSHADER_vkContext *_ctx)
+{
+    ctx = _ctx;
+} // MOJOSHADER_vkMakeContextCurrent
+
+void MOJOSHADER_vkDestroyContext()
+{
+    ctx->free_fn(ctx, ctx->malloc_data);
+} // MOJOSHADER_vkDestroyContext
+
+MOJOSHADER_vkShader *MOJOSHADER_vkCompileShader(
+    const char *mainfn,
+    const unsigned char *tokenbuf,
+    const unsigned int bufsize,
+    const MOJOSHADER_swizzle *swiz,
+    const unsigned int swizcount,
+    const MOJOSHADER_samplerMap *smap,
+    const unsigned int smapcount
+) {
+    MOJOSHADER_vkShader *shader = NULL;
+
+    const MOJOSHADER_parseData *pd = MOJOSHADER_parse(
+        "spirv", mainfn,
+        tokenbuf, bufsize,
+        swiz, swizcount,
+        smap, smapcount,
+        ctx->malloc_fn,
+        ctx->free_fn,
+        ctx->malloc_data
+    );
+
+    if (pd->error_count > 0)
+    {
+        set_error(pd->errors[0].error);
+        goto compile_shader_fail;
+    }
+
+    shader = (MOJOSHADER_vkShader *) ctx->malloc_fn(sizeof(MOJOSHADER_vkShader), ctx->malloc_data);
+    if (shader == NULL)
+    {
+        out_of_memory();
+        goto compile_shader_fail;
+    }
+
+    VkShaderModule shaderModule;
+    VkShaderModuleCreateInfo shaderModuleCreateInfo = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
+    };
+
+    shaderModuleCreateInfo.flags = 0;
+    shaderModuleCreateInfo.codeSize = shader_bytecode_len(shader);
+    shaderModuleCreateInfo.pCode = (uint32_t*) pd->output;
+
+    VkResult result = ctx->vkCreateShaderModule(
+        *ctx->logical_device,
+        &shaderModuleCreateInfo,
+        NULL,
+        &shaderModule
+    );
+
+    if (result != VK_SUCCESS)
+    {
+        /* FIXME: should display VK error code */
+        set_error("Error when creating VkShaderModule");
+        goto compile_shader_fail;
+    }
+
+    shader->parseData = pd;
+    shader->refcount = 1;
+    shader->ubo = create_ubo(shader, ctx->malloc_fn, ctx->malloc_data);
+    shader->shaderModule = shaderModule;
+
+    return shader;
 
 compile_shader_fail:
-    f(retval->shader_indices, d);
-    f(retval->shaders, d);
-    f(retval, d);
+    MOJOSHADER_freeParseData(pd);
+    if (shader != NULL)
+    {
+        delete_shader(shader->shaderModule);
+        ctx->free_fn(shader, ctx->malloc_data);
+    }
     return NULL;
-} // MOJOSHADER_mtlCompileEffect
+
+} // MOJOSHADER_vkMakeContextCurrent
+
+void MOJOSHADER_vkShaderAddRef(MOJOSHADER_vkShader *shader)
+{
+    if (shader != NULL)
+    {
+        shader->refcount++;
+    }
+} // MOJOShader_vkShaderAddRef
+
+void MOJOSHADER_vkDeleteShader(MOJOSHADER_vkShader *shader)
+{
+    if (shader != NULL)
+    {
+        if (shader->refcount > 1)
+        {
+            shader->refcount--;
+        }
+        else
+        {
+            dealloc_ubo(shader);
+            delete_shader(shader->shaderModule);
+            MOJOSHADER_freeParseData(shader->parseData);
+            ctx->free_fn(shader, ctx->malloc_data);
+        }
+    }
+} // MOJOSHADER_vkDeleteShader
+
+const MOJOSHADER_parseData *MOJOSHADER_vkGetShaderParseData(
+    MOJOSHADER_vkShader *shader
+) {
+    return (shader != NULL) ? shader->parseData : NULL;
+} // MOJOSHADER_vkGetShaderParseData
+
+void MOJOSHADER_vkBindShaders(
+    MOJOSHADER_vkShader *vshader,
+    MOJOSHADER_vkShader *pshader
+) {
+    /* NOOP if shader is null */
+
+    if (vshader != NULL)
+    {
+        ctx->vertexShader = vshader;
+    }
+
+    if (pshader != NULL)
+    {
+        ctx->pixelShader = pshader;
+    }
+} // MOJOSHADER_vkBindShaders
+
+void MOJOSHADER_vkGetBoundShaders(
+    MOJOSHADER_vkShader **vshader,
+    MOJOSHADER_vkShader **pshader
+) {
+    *vshader = ctx->vertexShader;
+    *pshader = ctx->pixelShader;
+} // MOJOSHADER_vkGetBoundShaders
+
+void MOJOSHADER_vkMapUniformBufferMemory(
+    float **vsf, int **vsi, unsigned char **vsb,
+    float **psf, int **psi, unsigned char **psb
+) {
+    *vsf = ctx->vs_reg_file_f;
+    *vsi = ctx->vs_reg_file_i;
+    *vsb = ctx->vs_reg_file_b;
+    *psf = ctx->vs_reg_file_f;
+    *psi = ctx->vs_reg_file_i;
+    *psb = ctx->vs_reg_file_b;
+} // MOJOSHADER_vkMapUniformBufferMemory
+
+void MOJOSHADER_vkUnmapUniformBufferMemory()
+{
+    /* why is this function named unmap instead of update?
+     * the world may never know...
+     */
+
+    update_uniform_buffer(ctx->vertexShader);
+    update_uniform_buffer(ctx->pixelShader);
+} // MOJOSHADER_vkUnmapUniformBufferMemory
+
+void MOJOSHADER_vkGetUniformBuffers(
+    void **vbuf, int *voff,
+    void **pbuf, int *poff
+) {
+    *vbuf = get_uniform_buffer(ctx->vertexShader);
+    *voff = get_uniform_offset(ctx->vertexShader);
+    *pbuf = get_uniform_buffer(ctx->pixelShader);
+    *poff = get_uniform_offset(ctx->pixelShader);
+} // MOJOSHADER_vkGetUniformBuffers
 
 #endif /* MOJOSHADER_EFFECT_SUPPORT */
