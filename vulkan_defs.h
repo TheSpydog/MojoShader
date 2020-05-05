@@ -1,5 +1,3 @@
-#include <stddef.h>
-
 /* per Vulkan 1.0 spec */
 
 /* In case this needs to be exported in a certain way... */
