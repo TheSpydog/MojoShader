@@ -3738,7 +3738,7 @@ DECLSPEC void MOJOSHADER_vkMapUniformBufferMemory(float **vsf, int **vsi, unsign
 DECLSPEC void MOJOSHADER_vkUnmapUniformBufferMemory();
 
 /*
- * This queries for the uniform buffer and byte offset for each of the
+ * This queries for the uniform buffer, byte offset and byte size for each of the
  *  currently bound shaders.
  *
  * This function is only for convenience, specifically for compatibility with
@@ -3747,8 +3747,8 @@ DECLSPEC void MOJOSHADER_vkUnmapUniformBufferMemory();
  * This call requires a valid MOJOSHADER_vkContext to have been made current,
  *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
  */
-DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, int *voff,
-                                             void **pbuf, int *poff); 
+DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long *voff, unsigned long *vsize,
+                                             void **pbuf, unsigned long *poff, unsigned long *psize); 
 
 /* D3D11 interface... */
 
