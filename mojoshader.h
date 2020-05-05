@@ -3532,6 +3532,223 @@ DECLSPEC void MOJOSHADER_mtlEndFrame(void);
  */
 DECLSPEC void MOJOSHADER_mtlDestroyContext(void);
 
+/* Vulkan interface */
+
+#include "vulkan_defs.h"
+
+typedef struct MOJOSHADER_vkContext MOJOSHADER_vkContext;
+typedef struct MOJOSHADER_vkShader MOJOSHADER_vkShader;
+
+/*
+ * Prepares a context to manage Vulkan shaders.
+ * 
+ * Don't call this unless you know for sure that you need it.
+ * 
+ * You must call this after creating VkDevice and VkInstance.
+ * 
+ * (instance) refers to VkInstance, cast to void*.
+ * 
+ * (device) refers to VkDevice, cast to void*.
+ * 
+ * (frames_in_flight) refers to the maximum number of frames that can be
+ * processed simultaneously. 
+ * 
+ * (lookup) refers to PFN_vkGetDeviceProcAddr, a function pointer that 
+ * is used to dynamically link required Vulkan functions.
+ * 
+ * You must pass in the graphics queue family index and the memory type index
+ * you will be using with your Vulkan instance.
+ * 
+ * As MojoShader requires some memory to be allocated, you may provide a
+ *  custom allocator to this function, which will be used to allocate/free
+ *  memory. They function just like malloc() and free(). We do not use
+ *  realloc(). If you don't care, pass NULL in for the allocator functions.
+ *  If your allocator needs instance-specific data, you may supply it with the
+ *  (malloc_d) parameter. This pointer is passed as-is to your (m) and (f)
+ *  functions.
+ *
+ * The context created by this function will automatically become the current
+ *  context. No further action is needed by the caller.
+ *
+ * Returns 0 on success or -1 on failure.
+ */
+
+DECLSPEC MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(VkInstance *instance,
+                                                          VkDevice *logical_device,
+                                                          int frames_in_flight,
+                                                          PFN_vkGetDeviceProcAddr lookup,
+                                                          unsigned int graphics_queue_family_index,
+                                                          unsigned int memory_type_index,
+                                                          MOJOSHADER_malloc m, MOJOSHADER_free f,
+                                                          void *malloc_d);
+
+/*
+ * You must call this before using the context that you got from
+ *  MOJOSHADER_vkCreateContext(), and must use it when you switch to a new GL
+ *  context.
+ *
+ * You can only have one MOJOSHADER_vkContext per actual Vulkan context, or
+ *  undefined behaviour will result.
+ *
+ * It is legal to call this with a NULL pointer to make no context current,
+ *  but you need a valid context to be current to use most of MojoShader.
+ */
+DECLSPEC void MOJOSHADER_vkMakeContextCurrent(MOJOSHADER_vkContext *_ctx);
+
+/*
+ * Get any error state we might have picked up.
+ *
+ * Returns a human-readable string. This string is for debugging purposes, and
+ *  not guaranteed to be localized, coherent, or user-friendly in any way.
+ *  It's for programmers!
+ *
+ * The latest error may remain between calls. New errors replace any existing
+ *  error. Don't check this string for a sign that an error happened, check
+ *  return codes instead and use this for explanation when debugging.
+ *
+ * Do not free the returned string: it's a pointer to a static internal
+ *  buffer. Do not keep the pointer around, either, as it's likely to become
+ *  invalid as soon as you call into MojoShader again.
+ *
+ * This call does NOT require a valid MOJOSHADER_vkContext to have been made
+ *  current. The error buffer is shared between contexts, so you can get
+ *  error results from a failed MOJOSHADER_vkCreateContext().
+ */
+DECLSPEC const char *MOJOSHADER_vkGetError();
+
+/*
+ * Deinitialize MojoShader's Vulkan shader management.
+ *
+ * You must call this once, while your Vulkan context (not MojoShader context) is
+ *  still current, if you previously had a successful call to
+ *  MOJOSHADER_vkCreateContext(). This should be the last MOJOSHADER_vk*
+ *  function you call until you've prepared a context again.
+ *
+ * This will clean up resources previously allocated, and may call into Vulkan.
+ *
+ * This will not clean up shaders and programs you created! Please call
+ *  MOJOSHADER_vkDeleteShader() and MOJOSHADER_vkDeleteProgram() to clean
+ *  those up before calling this function!
+ *
+ * This function destroys the MOJOSHADER_vkContext you pass it. If it's the
+ *  current context, then no context will be current upon return.
+ */
+DECLSPEC void MOJOSHADER_vkDestroyContext();
+
+/*
+ * Compile a buffer of Direct3D shader bytecode into a Vulkan shader module.
+ *
+ *   (tokenbuf) is a buffer of Direct3D shader bytecode.
+ *   (bufsize) is the size, in bytes, of the bytecode buffer.
+ *   (swiz), (swizcount), (smap), and (smapcount) are passed to
+ *   MOJOSHADER_parse() unmolested.
+ *
+ * Returns NULL on error, or a shader handle on success.
+ *
+ * This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ *
+ * Compiled shaders from this function may not be shared between contexts.
+ */
+DECLSPEC MOJOSHADER_vkShader *MOJOSHADER_vkCompileShader(const char *mainfn,
+                                                         const unsigned char *tokenbuf,
+                                                         const unsigned int bufsize,
+                                                         const MOJOSHADER_swizzle *swiz,
+                                                         const unsigned int swizcount,
+                                                         const MOJOSHADER_samplerMap *smap,
+                                                         const unsigned int smapcount);
+
+/*
+ * Increments a shader's internal refcount. 
+ * 
+ * To decrement the refcount, call
+ *  MOJOSHADER_vkDeleteShader().
+ *
+ * This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ */
+DECLSPEC void MOJOSHADER_vkShaderAddRef(MOJOSHADER_vkShader *shader);
+
+/*
+ * Increments a shader's internal refcount. 
+ * 
+ * To decrement the refcount, call MOJOSHADER_vkDeleteShader().
+ *
+ * This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ */
+DECLSPEC void MOJOSHADER_vkDeleteShader(MOJOSHADER_vkShader *shader);
+
+/*
+ * Get the MOJOSHADER_parseData structure that was produced from the
+ *  call to MOJOSHADER_vkCompileShader().
+ *
+ * This data is read-only, and you should NOT attempt to free it. This
+ *  pointer remains valid until the shader is deleted.
+ */
+DECLSPEC const MOJOSHADER_parseData *MOJOSHADER_vkGetShaderParseData(
+                                                MOJOSHADER_vkShader *shader);
+
+/*
+ * This "binds" individual shaders, which effectively means the context
+ *  will store these shaders for later retrieval. No actual binding or
+ *  pipeline creation is performed.
+ *
+ * This function is only for convenience, specifically for compatibility 
+ *  with the effects API.
+ *
+ * This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ */
+DECLSPEC void MOJOSHADER_vkBindShaders(MOJOSHADER_vkShader *vshader,
+                                       MOJOSHADER_vkShader *pshader);
+
+/*
+ * This queries for the shaders currently bound to the active context.
+ *
+ * This function is only for convenience, specifically for compatibility 
+ *  with the effects API.
+ *
+ * This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ */
+DECLSPEC void MOJOSHADER_vkGetBoundShaders(MOJOSHADER_vkShader **vshader,
+                                           MOJOSHADER_vkShader **pshader);
+
+/*
+ * Fills register pointers with pointers that are directly used to push uniform
+ *  data to the Vulkan shader context.
+ *
+ * This function is really just for the effects API, you should NOT be using
+ *  this unless you know every single line of MojoShader from memory.
+ *
+ * This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ */
+DECLSPEC void MOJOSHADER_vkMapUniformBufferMemory(float **vsf, int **vsi, unsigned char **vsb,
+                                                  float **psf, int **psi, unsigned char **psb);
+
+/*
+ * Tells the context that you are done with the memory mapped by
+ *  MOJOSHADER_vkMapUniformBufferMemory().
+ *
+ * This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ */
+DECLSPEC void MOJOSHADER_vkUnmapUniformBufferMemory();
+
+/*
+ * This queries for the uniform buffer and byte offset for each of the
+ *  currently bound shaders.
+ *
+ * This function is only for convenience, specifically for compatibility with
+ *  the effects API.
+ *
+ * This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ */
+DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, int *voff,
+                                             void **pbuf, int *poff); 
 
 /* D3D11 interface... */
 
@@ -3737,8 +3954,8 @@ DECLSPEC void MOJOSHADER_d3d11DestroyContext(void);
 
 
 /* Effects interface... */
-#include "mojoshader_effects.h"
 
+#include "mojoshader_effects.h"
 
 #ifdef __cplusplus
 }
@@ -3747,4 +3964,3 @@ DECLSPEC void MOJOSHADER_d3d11DestroyContext(void);
 #endif  /* include-once blocker. */
 
 /* end of mojoshader.h ... */
-
