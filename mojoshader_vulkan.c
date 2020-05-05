@@ -10,21 +10,31 @@
 #define __MOJOSHADER_INTERNAL__ 1
 #include "mojoshader_internal.h"
 
-#include "vulkan.h"
+/* internal struct defs */
+typedef struct MOJOSHADER_vkUniformBuffer MOJOSHADER_vkUniformBuffer;
+typedef struct MOJOSHADER_vkShader
+{
+    VkShaderModule shaderModule;
+    const MOJOSHADER_parseData *parseData;
+    MOJOSHADER_vkUniformBuffer *ubo;
+    uint32 refcount;
+} MOJOSHADER_vkShader;
 
-/* In case this needs to be exported in a certain way... */
-#ifdef _WIN32 /* Windows OpenGL uses stdcall */
-#define VKAPIENTRY __stdcall
-#else
-#define VKAPIENTRY
-#endif
+// Error state...
+static char error_buffer[1024] = { '\0' };
 
-#define VULKAN_DEVICE_FUNCTION(ext, ret, func, params) \
-	typedef ret (VKAPIENTRY *vkfntype_##func) params;
-#include "mojoshader_vulkan_device_funcs.h"
-#undef VULKAN_DEVICE_FUNCTION
+static void set_error(const char *str)
+{
+    snprintf(error_buffer, sizeof (error_buffer), "%s", str);
+} // set_error
 
- typedef void *(MOJOSHADERCALL *MOJOSHADER_vkGetDeviceProcAddress)(const char *fnname, void *data);
+static inline void out_of_memory(void)
+{
+    set_error("out of memory");
+} // out_of_memory
+
+#if SUPPORT_PROFILE_SPIRV
+#ifdef MOJOSHADER_EFFECT_SUPPORT
 
 /* Structs */
 
@@ -37,7 +47,7 @@ typedef struct MOJOSHADER_vkBufferWrapper
     void **data;
 } MOJOSHADER_vkBufferWrapper;
 
-typedef struct MOJOSHADER_vkUniformBuffer
+struct MOJOSHADER_vkUniformBuffer
 {
     int bufferSize;
     MOJOSHADER_vkBufferWrapper **internalBuffers;
@@ -45,20 +55,12 @@ typedef struct MOJOSHADER_vkUniformBuffer
     VkDeviceSize internalOffset;
     int currentFrame;
     int inUse;
-} MOJOSHADER_vkUniformBuffer;
+};
 
 /* Max entries for each register file type */
 #define MAX_REG_FILE_F 8192
 #define MAX_REG_FILE_I 2047
 #define MAX_REG_FILE_B 2047
-
-typedef struct MOJOSHADER_vkShader
-{
-    VkShaderModule shaderModule;
-    const MOJOSHADER_parseData *parseData;
-    MOJOSHADER_vkUniformBuffer *ubo;
-    uint32 refcount;
-} MOJOSHADER_vkShader;
 
 typedef struct MOJOSHADER_vkEffect
 {
@@ -113,21 +115,6 @@ typedef struct MOJOSHADER_vkContext
 } MOJOSHADER_vkContext;
 
 static MOJOSHADER_vkContext *ctx = NULL;
-
-// Error state...
-static char error_buffer[1024] = { '\0' };
-
-static void set_error(const char *str)
-{
-    snprintf(error_buffer, sizeof (error_buffer), "%s", str);
-} // set_error
-
-static inline void out_of_memory(void)
-{
-    set_error("out of memory");
-} // out_of_memory
-
-#ifdef MOJOSHADER_EFFECT_SUPPORT
 
 /* UBO funcs */
 
@@ -232,6 +219,12 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
             oldBuffer->data
         );
 
+        if (vulkanResult != VK_SUCCESS)
+        {
+            set_error("error mapping memory in create_ubo_backing_buffer");
+            return NULL;
+        }
+
         newBuffer->offset = oldBuffer->offset;
         newBuffer->size = oldBuffer->size;
 
@@ -241,11 +234,10 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
             oldBuffer->size
         );
 
-        if (vulkanResult != VK_SUCCESS)
-        {
-            set_error("error copying memory in create_ubo_backing_buffer");
-            return NULL;
-        }
+        ctx->vkUnmapMemory(
+            *ctx->logical_device,
+            newBuffer->device_memory
+        );
 
         free_buffer_wrapper(oldBuffer);
     } // if
@@ -475,49 +467,47 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     VkDevice *logical_device,
     int frames_in_flight,
     PFN_vkGetDeviceProcAddr lookup,
-    uint32_t graphics_queue_family_index,
-    uint32_t memory_type_index,
+    unsigned int graphics_queue_family_index,
+    unsigned int memory_type_index,
     MOJOSHADER_malloc m, MOJOSHADER_free f,
     void *malloc_d
 ) {
-    assert(ctx == NULL);
-
     if (m == NULL) m = MOJOSHADER_internal_malloc;
     if (f == NULL) f = MOJOSHADER_internal_free;
 
-    ctx = (MOJOSHADER_vkContext *) m(sizeof(MOJOSHADER_vkContext), malloc_d);
-    if (ctx == NULL)
+    MOJOSHADER_vkContext* resultCtx = (MOJOSHADER_vkContext *) m(sizeof(MOJOSHADER_vkContext), malloc_d);
+    if (resultCtx == NULL)
     {
         out_of_memory();
         goto init_fail;
     }
 
-    memset(ctx, '\0', sizeof(MOJOSHADER_vkContext));
-    ctx->malloc_fn = m;
-    ctx->free_fn = f;
-    ctx->malloc_data = malloc_d;
+    memset(resultCtx, '\0', sizeof(MOJOSHADER_vkContext));
+    resultCtx->malloc_fn = m;
+    resultCtx->free_fn = f;
+    resultCtx->malloc_data = malloc_d;
 
-    ctx->instance = instance;
-    ctx->logical_device = logical_device;
-    ctx->device_proc_lookup = lookup;
-    ctx->frames_in_flight = frames_in_flight;
-    ctx->graphics_queue_family_index = graphics_queue_family_index;
-    ctx->memory_type_index = memory_type_index;
+    resultCtx->instance = instance;
+    resultCtx->logical_device = logical_device;
+    resultCtx->device_proc_lookup = lookup;
+    resultCtx->frames_in_flight = frames_in_flight;
+    resultCtx->graphics_queue_family_index = graphics_queue_family_index;
+    resultCtx->memory_type_index = memory_type_index;
 
-    lookup_entry_points(ctx);
+    lookup_entry_points(resultCtx);
 
-    ctx->bufferArrayCapacity = 32;
-    ctx->buffersInUse = ctx->malloc_fn(
-        ctx->bufferArrayCapacity * sizeof(MOJOSHADER_vkUniformBuffer*),
-        ctx->malloc_data
+    resultCtx->bufferArrayCapacity = 32;
+    resultCtx->buffersInUse = resultCtx->malloc_fn(
+        resultCtx->bufferArrayCapacity * sizeof(MOJOSHADER_vkUniformBuffer*),
+        resultCtx->malloc_data
     );
 
-    return ctx;
+    return resultCtx;
 
 init_fail:
-    if (ctx != NULL)
+    if (resultCtx != NULL)
     {
-        f(ctx, malloc_d);
+        f(resultCtx, malloc_d);
     }
     return NULL;
 } // MOJOSHADER_vkCreateContext
@@ -529,6 +519,7 @@ void MOJOSHADER_vkMakeContextCurrent(MOJOSHADER_vkContext *_ctx)
 
 void MOJOSHADER_vkDestroyContext()
 {
+    ctx->free_fn(ctx->buffersInUse, ctx->malloc_data);
     ctx->free_fn(ctx, ctx->malloc_data);
 } // MOJOSHADER_vkDestroyContext
 
@@ -696,4 +687,12 @@ void MOJOSHADER_vkGetUniformBuffers(
     *poff = get_uniform_offset(ctx->pixelShader);
 } // MOJOSHADER_vkGetUniformBuffers
 
+const char *MOJOSHADER_vkGetError(void)
+{
+    return error_buffer;
+} // MOJOSHADER_vkGetError
+
 #endif /* MOJOSHADER_EFFECT_SUPPORT */
+#endif /* SUPPORT_PROFILE_SPIRV */
+
+// end of mojoshader_vulkan.c ...
