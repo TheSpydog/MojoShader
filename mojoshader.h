@@ -3573,10 +3573,10 @@ typedef struct MOJOSHADER_vkShader MOJOSHADER_vkShader;
  * Returns 0 on success or -1 on failure.
  */
 
-DECLSPEC MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(VkInstance *instance,
-                                                          VkDevice *logical_device,
+DECLSPEC MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(MOJOSHADER_VkInstance *instance,
+                                                          MOJOSHADER_VkDevice *logical_device,
                                                           int frames_in_flight,
-                                                          PFN_vkGetDeviceProcAddr lookup,
+                                                          PFN_MOJOSHADER_vkGetDeviceProcAddr lookup,
                                                           unsigned int graphics_queue_family_index,
                                                           unsigned int memory_type_index,
                                                           MOJOSHADER_malloc m, MOJOSHADER_free f,
