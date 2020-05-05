@@ -7,8 +7,15 @@
  *  This file written by Ryan C. Gordon.
  */
 
+#include "vulkan.h"
+
 #define __MOJOSHADER_INTERNAL__ 1
 #include "mojoshader_internal.h"
+
+#define VULKAN_DEVICE_FUNCTION(ret, func, params) \
+	typedef ret (MOJOSHADER_VKAPIENTRY *vkfntype_MOJOSHADER_##func) params;
+#include "mojoshader_vulkan_device_funcs.h"
+#undef VULKAN_DEVICE_FUNCTION
 
 /* internal struct defs */
 typedef struct MOJOSHADER_vkUniformBuffer MOJOSHADER_vkUniformBuffer;
@@ -108,8 +115,8 @@ typedef struct MOJOSHADER_vkContext
     uint32_t graphics_queue_family_index;
     uint32_t memory_type_index;
 
-    #define VULKAN_DEVICE_FUNCTION(ext, ret, func, params) \
-        vkfntype_##func func;
+    #define VULKAN_DEVICE_FUNCTION(ret, func, params) \
+        vkfntype_MOJOSHADER_##func func;
     #include "mojoshader_vulkan_device_funcs.h"
     #undef VULKAN_DEVICE_FUNCTION
 } MOJOSHADER_vkContext;
@@ -439,8 +446,8 @@ static void dealloc_ubo(MOJOSHADER_vkShader *shader)
 static void lookup_entry_points(
     MOJOSHADER_vkContext *ctx
 ) {
-    #define VULKAN_DEVICE_FUNCTION(ext, ret, func, params) \
-        ctx->func = (vkfntype_##func) ctx->device_proc_lookup(*ctx->logical_device, #func); 
+    #define VULKAN_DEVICE_FUNCTION(ret, func, params) \
+        ctx->func = (vkfntype_MOJOSHADER_##func) ctx->device_proc_lookup(*ctx->logical_device, #func); 
     #include "mojoshader_vulkan_device_funcs.h"
     #undef VULKAN_DEVICE_FUNCTION
 } // lookup_entry_points
@@ -463,10 +470,10 @@ static void delete_shader(
 /* Public API */
 
 MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
-    VkInstance *instance,
-    VkDevice *logical_device,
+    MOJOSHADER_VkInstance *instance,
+    MOJOSHADER_VkDevice *logical_device,
     int frames_in_flight,
-    PFN_vkGetDeviceProcAddr lookup,
+    PFN_MOJOSHADER_vkGetDeviceProcAddr lookup,
     unsigned int graphics_queue_family_index,
     unsigned int memory_type_index,
     MOJOSHADER_malloc m, MOJOSHADER_free f,
@@ -487,9 +494,9 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     resultCtx->free_fn = f;
     resultCtx->malloc_data = malloc_d;
 
-    resultCtx->instance = instance;
-    resultCtx->logical_device = logical_device;
-    resultCtx->device_proc_lookup = lookup;
+    resultCtx->instance = (VkInstance*) instance;
+    resultCtx->logical_device = (VkDevice*) logical_device;
+    resultCtx->device_proc_lookup = (PFN_vkGetDeviceProcAddr) lookup;
     resultCtx->frames_in_flight = frames_in_flight;
     resultCtx->graphics_queue_family_index = graphics_queue_family_index;
     resultCtx->memory_type_index = memory_type_index;
