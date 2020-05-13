@@ -706,6 +706,25 @@ void MOJOSHADER_vkGetUniformBuffers(
     *psize = get_uniform_size(ctx->pixelShader);
 } // MOJOSHADER_vkGetUniformBuffers
 
+int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
+                                         MOJOSHADER_usage usage, int index)
+{
+    if (vert == NULL)
+        return -1;
+
+    for (int i = 0; i < vert->parseData->attribute_count; i++)
+    {
+        if (vert->parseData->attributes[i].usage == usage &&
+            vert->parseData->attributes[i].index == index)
+        {
+            return i;
+        } // if
+    } // for
+
+    // failure
+    return -1;
+} //MOJOSHADER_vkGetVertexAttribLocation
+
 const char *MOJOSHADER_vkGetError(void)
 {
     return error_buffer;

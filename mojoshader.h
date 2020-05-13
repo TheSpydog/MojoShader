@@ -3750,6 +3750,16 @@ DECLSPEC void MOJOSHADER_vkUnmapUniformBufferMemory();
 DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long *voff, unsigned long *vsize,
                                              void **pbuf, unsigned long *poff, unsigned long *psize); 
 
+/* 
+ * The return value is the index of the attribute to be used to create
+ *  a VkVertexInputAttributeDescription, or -1 if the stream is not used.
+ * 
+ *  This call requires a valid MOJOSHADER_vkContext to have been made current,
+ *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
+ */
+DECLSPEC int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
+                                                  MOJOSHADER_usage usage, int index);
+
 /* D3D11 interface... */
 
 typedef struct MOJOSHADER_d3d11Shader MOJOSHADER_d3d11Shader;
@@ -3889,6 +3899,8 @@ DECLSPEC void MOJOSHADER_d3d11UnmapUniformBufferMemory();
 
 /*
  * Return the location of a vertex attribute for the given vertex shader.
+/*
+ * Return the location of a vertex attribute for the given shader.
  *
  * (usage) and (index) map to Direct3D vertex declaration values: COLOR1 would
  *  be MOJOSHADER_USAGE_COLOR and 1.
@@ -3951,7 +3963,6 @@ DECLSPEC void MOJOSHADER_d3d11DeleteShader(MOJOSHADER_d3d11Shader *shader);
  *  before calling this function.
  */
 DECLSPEC void MOJOSHADER_d3d11DestroyContext(void);
-
 
 /* Effects interface... */
 
