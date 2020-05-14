@@ -63,10 +63,10 @@ struct MOJOSHADER_vkUniformBuffer
 {
     int bufferSize;
     MOJOSHADER_vkBufferWrapper **internalBuffers;
-    VkDeviceSize internalBufferSize;
-    VkDeviceSize internalOffset;
     int currentFrame;
     int inUse;
+    VkDeviceSize internalBufferSize;
+    VkDeviceSize internalOffset;
 };
 
 /* Max entries for each register file type */
@@ -243,7 +243,7 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
         return NULL;
     }
 
-    allocate_info.allocationSize = ubo->bufferSize;
+    allocate_info.allocationSize = ubo->internalBufferSize;
 
     vulkanResult = ctx->vkAllocateMemory(
         *ctx->logical_device,
@@ -316,10 +316,10 @@ static MOJOSHADER_vkUniformBuffer *create_ubo(
     } // for 
 
     MOJOSHADER_vkUniformBuffer *buffer;
-    buffer = (MOJOSHADER_vkUniformBuffer*) m(sizeof(MOJOSHADER_vkUniformBuffer*), d);
+    buffer = (MOJOSHADER_vkUniformBuffer*) m(sizeof(MOJOSHADER_vkUniformBuffer), d);
     buffer->bufferSize = next_highest_alignment(buflen);
-    buffer->internalBufferSize = buffer->bufferSize * 16;
-    buffer->internalBuffers = m(ctx->frames_in_flight * sizeof(MOJOSHADER_vkBufferWrapper*), d);
+    buffer->internalBufferSize = ((uint64_t)buffer->bufferSize) * 16;
+    buffer->internalBuffers = m(ctx->frames_in_flight * sizeof(void*), d);
     buffer->internalOffset = 0;
     buffer->inUse = 0;
     buffer->currentFrame = 0;
