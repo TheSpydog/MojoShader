@@ -565,6 +565,7 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
         resultCtx->bufferArrayCapacity * sizeof(MOJOSHADER_vkUniformBuffer*),
         resultCtx->malloc_data
     );
+    resultCtx->buffersInUseCount = 0;
 
     return resultCtx;
 
