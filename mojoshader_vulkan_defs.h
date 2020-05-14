@@ -27,3 +27,8 @@ typedef PFN_MOJOSHADER_vkVoidFunction (MOJOSHADER_VKAPI_PTR *PFN_MOJOSHADER_vkGe
 	MOJOSHADER_VkDevice device,
 	const char* pName
 );
+
+typedef PFN_MOJOSHADER_vkVoidFunction (MOJOSHADER_VKAPI_PTR *PFN_MOJOSHADER_vkGetInstanceProcAddr)(
+	MOJOSHADER_VkInstance instance,
+	const char* pName
+);
