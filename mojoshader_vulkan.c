@@ -17,6 +17,11 @@
 #include "mojoshader_vulkan_device_funcs.h"
 #undef VULKAN_DEVICE_FUNCTION
 
+#define VULKAN_INSTANCE_FUNCTION(ret, func, params) \
+    typedef ret (MOJOSHADER_VKAPIENTRY *vkfntype_MOJOSHADER_##func) params;
+#include "mojoshader_vulkan_instance_funcs.h"
+#undef VULKAN_INSTANCE_FUNCTION
+
 /* internal struct defs */
 typedef struct MOJOSHADER_vkUniformBuffer MOJOSHADER_vkUniformBuffer;
 typedef struct MOJOSHADER_vkShader
@@ -90,6 +95,7 @@ typedef struct MOJOSHADER_vkContext
     VkInstance *instance;
     VkPhysicalDevice *physical_device;
     VkDevice *logical_device;
+    PFN_vkGetInstanceProcAddr instance_proc_lookup;
     PFN_vkGetDeviceProcAddr device_proc_lookup;
     uint32_t graphics_queue_family_index;
 
@@ -118,6 +124,11 @@ typedef struct MOJOSHADER_vkContext
         vkfntype_MOJOSHADER_##func func;
     #include "mojoshader_vulkan_device_funcs.h"
     #undef VULKAN_DEVICE_FUNCTION
+
+    #define VULKAN_INSTANCE_FUNCTION(ret, func, params) \
+        vkfntype_MOJOSHADER_##func func;
+    #include "mojoshader_vulkan_instance_funcs.h"
+    #undef VULKAN_INSTANCE_FUNCTION
 } MOJOSHADER_vkContext;
 
 static MOJOSHADER_vkContext *ctx = NULL;
@@ -496,6 +507,11 @@ static void lookup_entry_points(
         ctx->func = (vkfntype_MOJOSHADER_##func) ctx->device_proc_lookup(*ctx->logical_device, #func); 
     #include "mojoshader_vulkan_device_funcs.h"
     #undef VULKAN_DEVICE_FUNCTION
+
+    #define VULKAN_INSTANCE_FUNCTION(ret, func, params) \
+        ctx->func = (vkfntype_MOJOSHADER_##func) ctx->instance_proc_lookup(*ctx->instance, #func);
+    #include "mojoshader_vulkan_instance_funcs.h"
+    #undef VULKAN_INSTANCE_FUNCTION
 } // lookup_entry_points
 
 static int shader_bytecode_len(MOJOSHADER_vkShader *shader)
@@ -520,7 +536,8 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     MOJOSHADER_VkPhysicalDevice *physical_device,
     MOJOSHADER_VkDevice *logical_device,
     int frames_in_flight,
-    PFN_MOJOSHADER_vkGetDeviceProcAddr lookup,
+    PFN_MOJOSHADER_vkGetInstanceProcAddr instance_lookup,
+    PFN_MOJOSHADER_vkGetDeviceProcAddr device_lookup,
     unsigned int graphics_queue_family_index,
     MOJOSHADER_malloc m, MOJOSHADER_free f,
     void *malloc_d
@@ -543,7 +560,8 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     resultCtx->instance = (VkInstance*) instance;
     resultCtx->physical_device = (VkPhysicalDevice*) physical_device;
     resultCtx->logical_device = (VkDevice*) logical_device;
-    resultCtx->device_proc_lookup = (PFN_vkGetDeviceProcAddr) lookup;
+    resultCtx->instance_proc_lookup = (PFN_vkGetInstanceProcAddr) instance_lookup;
+    resultCtx->device_proc_lookup = (PFN_vkGetDeviceProcAddr) device_lookup;
     resultCtx->frames_in_flight = frames_in_flight;
     resultCtx->graphics_queue_family_index = graphics_queue_family_index;
 

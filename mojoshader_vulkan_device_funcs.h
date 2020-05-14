@@ -15,6 +15,5 @@ VULKAN_DEVICE_FUNCTION(void, vkDestroyBuffer, (VkDevice device, VkBuffer buffer,
 VULKAN_DEVICE_FUNCTION(void, vkDestroyShaderModule, (VkDevice device, VkShaderModule shaderModule, const VkAllocationCallbacks *pAllocator))
 VULKAN_DEVICE_FUNCTION(void, vkFreeMemory, (VkDevice device, VkDeviceMemory memory, const VkAllocationCallbacks *pAllocator))
 VULKAN_DEVICE_FUNCTION(void, vkGetBufferMemoryRequirements, (VkDevice device, VkBuffer buffer, VkMemoryRequirements *pMemoryRequirements))
-VULKAN_DEVICE_FUNCTION(void, vkGetPhysicalDeviceMemoryProperties, (VkPhysicalDevice physicalDevice, VkPhysicalDeviceMemoryProperties *pMemoryProperties))
 VULKAN_DEVICE_FUNCTION(VkResult, vkMapMemory, (VkDevice device, VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags, void **ppData))
 VULKAN_DEVICE_FUNCTION(void, vkUnmapMemory, (VkDevice device, VkDeviceMemory memory))
