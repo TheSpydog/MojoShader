@@ -135,16 +135,9 @@ static MOJOSHADER_vkContext *ctx = NULL;
 
 /* UBO funcs */
 
-static VkDeviceSize next_highest_alignment(VkBuffer *buffer, int n)
+static VkDeviceSize next_highest_alignment(int n)
 {
-    VkMemoryRequirements memory_requirements;
-    ctx->vkGetBufferMemoryRequirements(
-        *ctx->logical_device,
-        *buffer,
-        &memory_requirements
-    );
-
-    VkDeviceSize align = memory_requirements.alignment;
+    int align = 256;
     return align * ((n + align - 1) / align);
 }
 
@@ -324,6 +317,7 @@ static MOJOSHADER_vkUniformBuffer *create_ubo(
 
     MOJOSHADER_vkUniformBuffer *buffer;
     buffer = (MOJOSHADER_vkUniformBuffer*) m(sizeof(MOJOSHADER_vkUniformBuffer*), d);
+    buffer->bufferSize = next_highest_alignment(buflen);
     buffer->internalBufferSize = buffer->bufferSize * 16;
     buffer->internalBuffers = m(ctx->frames_in_flight * sizeof(MOJOSHADER_vkBufferWrapper*), d);
     buffer->internalOffset = 0;
@@ -337,7 +331,6 @@ static MOJOSHADER_vkUniformBuffer *create_ubo(
     } // for
 
     /* could the buffers have different alignment requirements somehow? */
-    buffer->bufferSize = next_highest_alignment(&buffer->internalBuffers[0]->buffer, buflen);
 
     return buffer;
 } // create_ubo
