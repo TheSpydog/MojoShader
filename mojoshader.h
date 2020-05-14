@@ -3574,11 +3574,11 @@ typedef struct MOJOSHADER_vkShader MOJOSHADER_vkShader;
  */
 
 DECLSPEC MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(MOJOSHADER_VkInstance *instance,
+                                                          MOJOSHADER_VkPhysicalDevice *physical_device,
                                                           MOJOSHADER_VkDevice *logical_device,
                                                           int frames_in_flight,
                                                           PFN_MOJOSHADER_vkGetDeviceProcAddr lookup,
                                                           unsigned int graphics_queue_family_index,
-                                                          unsigned int memory_type_index,
                                                           MOJOSHADER_malloc m, MOJOSHADER_free f,
                                                           void *malloc_d);
 
