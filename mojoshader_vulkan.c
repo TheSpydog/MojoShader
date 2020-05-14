@@ -88,8 +88,10 @@ typedef struct MOJOSHADER_vkEffect
 typedef struct MOJOSHADER_vkContext
 {
     VkInstance *instance;
+    VkPhysicalDevice *physical_device;
     VkDevice *logical_device;
     PFN_vkGetDeviceProcAddr device_proc_lookup;
+    uint32_t graphics_queue_family_index;
 
     int frames_in_flight;
 
@@ -111,9 +113,6 @@ typedef struct MOJOSHADER_vkContext
 
     MOJOSHADER_vkShader *vertexShader;
     MOJOSHADER_vkShader *pixelShader;
-
-    uint32_t graphics_queue_family_index;
-    uint32_t memory_type_index;
 
     #define VULKAN_DEVICE_FUNCTION(ret, func, params) \
         vkfntype_MOJOSHADER_##func func;
@@ -154,6 +153,26 @@ static void free_buffer_wrapper(MOJOSHADER_vkBufferWrapper *buffer)
 
     ctx->free_fn(buffer->data, ctx->malloc_data);
     ctx->free_fn(buffer, ctx->malloc_data);
+}
+
+static uint8_t find_memory_type(
+	uint32_t typeFilter,
+	VkMemoryPropertyFlags properties,
+	uint32_t *result
+) {
+	VkPhysicalDeviceMemoryProperties memoryProperties;
+	ctx->vkGetPhysicalDeviceMemoryProperties(*ctx->physical_device, &memoryProperties);
+
+	for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++)
+	{
+		if ((typeFilter & (1 << i)) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties)
+		{
+			*result = i;
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
@@ -198,12 +217,29 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
         return NULL;
     }
 
+	VkMemoryRequirements memoryRequirements;
+	ctx->vkGetBufferMemoryRequirements(
+		*ctx->logical_device,
+		newBuffer->buffer,
+		&memoryRequirements
+	);
+
     VkMemoryAllocateInfo allocate_info = {
         VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
     };
 
+    if (
+        !find_memory_type(
+            memoryRequirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &allocate_info.memoryTypeIndex
+        )
+    ) {
+        set_error("failed to find suitable memory type in create_ubo_backing_buffer");
+        return NULL;
+    }
+
     allocate_info.allocationSize = ubo->bufferSize;
-    allocate_info.memoryTypeIndex = ctx->memory_type_index;
 
     vulkanResult = ctx->vkAllocateMemory(
         *ctx->logical_device,
@@ -481,11 +517,11 @@ static void delete_shader(
 
 MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     MOJOSHADER_VkInstance *instance,
+    MOJOSHADER_VkPhysicalDevice *physical_device,
     MOJOSHADER_VkDevice *logical_device,
     int frames_in_flight,
     PFN_MOJOSHADER_vkGetDeviceProcAddr lookup,
     unsigned int graphics_queue_family_index,
-    unsigned int memory_type_index,
     MOJOSHADER_malloc m, MOJOSHADER_free f,
     void *malloc_d
 ) {
@@ -505,11 +541,11 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     resultCtx->malloc_data = malloc_d;
 
     resultCtx->instance = (VkInstance*) instance;
+    resultCtx->physical_device = (VkPhysicalDevice*) physical_device;
     resultCtx->logical_device = (VkDevice*) logical_device;
     resultCtx->device_proc_lookup = (PFN_vkGetDeviceProcAddr) lookup;
     resultCtx->frames_in_flight = frames_in_flight;
     resultCtx->graphics_queue_family_index = graphics_queue_family_index;
-    resultCtx->memory_type_index = memory_type_index;
 
     lookup_entry_points(resultCtx);
 
