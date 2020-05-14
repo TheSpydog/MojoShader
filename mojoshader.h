@@ -3751,7 +3751,19 @@ DECLSPEC void MOJOSHADER_vkUnmapUniformBufferMemory();
 DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long *voff, unsigned long *vsize,
                                              void **pbuf, unsigned long *poff, unsigned long *psize); 
 
-/* 
+/*
+ * Swaps uniform buffers and resets offsets to prepare for the next frame.
+ *
+ * Always call this after submitting the final command buffer for a frame!
+ */
+DECLSPEC void MOJOSHADER_vkEndFrame();
+
+/*
+ * Return the location of a vertex attribute for the given shader.
+ *
+ * (usage) and (index) map to Direct3D vertex declaration values: COLOR1 would
+ *  be MOJOSHADER_USAGE_COLOR and 1.
+ *
  * The return value is the index of the attribute to be used to create
  *  a VkVertexInputAttributeDescription, or -1 if the stream is not used.
  * 

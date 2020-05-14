@@ -759,6 +759,19 @@ void MOJOSHADER_vkGetUniformBuffers(
     *psize = get_uniform_size(ctx->pixelShader);
 } // MOJOSHADER_vkGetUniformBuffers
 
+void MOJOSHADER_vkEndFrame()
+{
+    for (int i = 0; i < ctx->buffersInUseCount; i++)
+    {
+        MOJOSHADER_vkUniformBuffer *buf = ctx->buffersInUse[i];
+        buf->internalOffset = 0;
+        buf->currentFrame = (buf->currentFrame + 1) % ctx->frames_in_flight;
+        buf->inUse = 0;
+    } // for
+
+    ctx->buffersInUseCount = 0;
+} // MOJOSHADER_VkEndFrame
+
 int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
                                          MOJOSHADER_usage usage, int index)
 {
