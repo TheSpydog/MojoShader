@@ -164,7 +164,6 @@ ADD_LIBRARY(mojoshader
     mojoshader_opengl.c
     mojoshader_metal.c
     mojoshader_d3d11.c
-    mojoshader_vulkan_device_funcs.h
     mojoshader_vulkan.c
     profiles/mojoshader_profile_arb1.c
     profiles/mojoshader_profile_bytecode.c

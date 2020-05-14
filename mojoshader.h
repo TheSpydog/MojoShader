@@ -3534,7 +3534,7 @@ DECLSPEC void MOJOSHADER_mtlDestroyContext(void);
 
 /* Vulkan interface */
 
-#include "vulkan_defs.h"
+#include "mojoshader_vulkan_defs.h"
 
 typedef struct MOJOSHADER_vkContext MOJOSHADER_vkContext;
 typedef struct MOJOSHADER_vkShader MOJOSHADER_vkShader;
@@ -3577,6 +3577,7 @@ DECLSPEC MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(MOJOSHADER_VkInstance 
                                                           MOJOSHADER_VkPhysicalDevice *physical_device,
                                                           MOJOSHADER_VkDevice *logical_device,
                                                           int frames_in_flight,
+                                                          PFN_MOJOSHADER_vkGetInstanceProcAddr instance_lookup,
                                                           PFN_MOJOSHADER_vkGetDeviceProcAddr lookup,
                                                           unsigned int graphics_queue_family_index,
                                                           MOJOSHADER_malloc m, MOJOSHADER_free f,
