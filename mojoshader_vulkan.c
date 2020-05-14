@@ -610,6 +610,10 @@ MOJOSHADER_vkShader *MOJOSHADER_vkCompileShader(
         goto compile_shader_fail;
     }
 
+    shader->parseData = pd;
+    shader->refcount = 1;
+    shader->ubo = create_ubo(shader, ctx->malloc_fn, ctx->malloc_data);
+
     VkShaderModule shaderModule;
     VkShaderModuleCreateInfo shaderModuleCreateInfo = {
         VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
@@ -623,7 +627,7 @@ MOJOSHADER_vkShader *MOJOSHADER_vkCompileShader(
         *ctx->logical_device,
         &shaderModuleCreateInfo,
         NULL,
-        &shaderModule
+        &shader->shaderModule
     );
 
     if (result != VK_SUCCESS)
@@ -632,11 +636,6 @@ MOJOSHADER_vkShader *MOJOSHADER_vkCompileShader(
         set_error("Error when creating VkShaderModule");
         goto compile_shader_fail;
     }
-
-    shader->parseData = pd;
-    shader->refcount = 1;
-    shader->ubo = create_ubo(shader, ctx->malloc_fn, ctx->malloc_data);
-    shader->shaderModule = shaderModule;
 
     return shader;
 
