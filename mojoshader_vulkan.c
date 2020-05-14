@@ -785,6 +785,13 @@ int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
     return -1;
 } //MOJOSHADER_vkGetVertexAttribLocation
 
+void *MOJOSHADER_vkGetShaderModule(MOJOSHADER_vkShader *shader)
+{
+    if (shader == NULL) { return NULL; }
+
+    return shader->shaderModule;
+} //MOJOSHADER_vkGetShaderModule
+
 const char *MOJOSHADER_vkGetError(void)
 {
     return error_buffer;

@@ -3773,6 +3773,11 @@ DECLSPEC void MOJOSHADER_vkEndFrame();
 DECLSPEC int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
                                                   MOJOSHADER_usage usage, int index);
 
+/*
+ * Get the VkShaderModule from the given MOJOSHADER_vkShader.
+ */
+DECLSPEC void *MOJOSHADER_vkGetShaderModule(MOJOSHADER_vkShader *shader);
+
 /* D3D11 interface... */
 
 typedef struct MOJOSHADER_d3d11Shader MOJOSHADER_d3d11Shader;
