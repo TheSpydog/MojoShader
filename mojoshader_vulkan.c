@@ -252,6 +252,25 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
         &newBuffer->device_memory
     );
 
+    if (vulkanResult != VK_SUCCESS)
+    {
+        set_error("failed to allocate memory for ubo backing buffer");
+        return NULL;
+    }
+
+    vulkanResult = ctx->vkBindBufferMemory(
+        ctx->logical_device,
+        newBuffer->buffer,
+        newBuffer->device_memory,
+        newBuffer->offset
+    );
+
+    if (vulkanResult != VK_SUCCESS)
+    {
+        set_error("failed to bind ubo backing buffer memory");
+        return NULL;
+    }
+
     /* there is no way to access contents of a VkBuffer directly...
      * we have to wrap the VkBuffer handle and data and copy it
      */
