@@ -259,7 +259,7 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
     }
 
     vulkanResult = ctx->vkBindBufferMemory(
-        ctx->logical_device,
+        *ctx->logical_device,
         newBuffer->buffer,
         newBuffer->device_memory,
         newBuffer->offset
