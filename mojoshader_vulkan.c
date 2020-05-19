@@ -451,6 +451,15 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
     MOJOSHADER_vkBufferWrapper *buf = shader->ubo->internalBuffers[shader->ubo->currentFrame];
     void *contents = buf->data + shader->ubo->internalOffset;
 
+    ctx->vkMapMemory(
+        *ctx->logical_device,
+        buf->device_memory,
+        buf->offset,
+        buf->size,
+        0,
+        &contents
+    );
+
     int offset = 0;
     for (int i = 0; i < shader->parseData->uniform_count; i++)
     {
@@ -494,6 +503,11 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
         offset += size;
     } // for
+
+    ctx->vkUnmapMemory(
+        *ctx->logical_device,
+        buf->device_memory
+    );
 } // update_uniform_buffer
 
 static void dealloc_ubo(MOJOSHADER_vkShader *shader)
@@ -745,9 +759,9 @@ void MOJOSHADER_vkMapUniformBufferMemory(
     *vsf = ctx->vs_reg_file_f;
     *vsi = ctx->vs_reg_file_i;
     *vsb = ctx->vs_reg_file_b;
-    *psf = ctx->vs_reg_file_f;
-    *psi = ctx->vs_reg_file_i;
-    *psb = ctx->vs_reg_file_b;
+    *psf = ctx->ps_reg_file_f;
+    *psi = ctx->ps_reg_file_i;
+    *psb = ctx->ps_reg_file_b;
 } // MOJOSHADER_vkMapUniformBufferMemory
 
 void MOJOSHADER_vkUnmapUniformBufferMemory()
