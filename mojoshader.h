@@ -3917,8 +3917,6 @@ DECLSPEC void MOJOSHADER_d3d11UnmapUniformBufferMemory();
 
 /*
  * Return the location of a vertex attribute for the given vertex shader.
-/*
- * Return the location of a vertex attribute for the given shader.
  *
  * (usage) and (index) map to Direct3D vertex declaration values: COLOR1 would
  *  be MOJOSHADER_USAGE_COLOR and 1.
