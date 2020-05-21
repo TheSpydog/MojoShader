@@ -3748,8 +3748,8 @@ DECLSPEC void MOJOSHADER_vkUnmapUniformBufferMemory();
  * This call requires a valid MOJOSHADER_vkContext to have been made current,
  *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
  */
-DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long *voff, unsigned long *vsize,
-                                             void **pbuf, unsigned long *poff, unsigned long *psize); 
+DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long long *voff, unsigned long long *vsize,
+                                             void **pbuf, unsigned long long *poff, unsigned long long *psize); 
 
 /*
  * Swaps uniform buffers and resets offsets to prepare for the next frame.
