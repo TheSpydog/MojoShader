@@ -364,7 +364,7 @@ static void *get_uniform_buffer(MOJOSHADER_vkShader *shader)
     return shader->ubo->internalBuffers[shader->ubo->currentFrame];
 } // get_uniform_buffer
 
-static unsigned long get_uniform_offset(MOJOSHADER_vkShader *shader)
+static VkDeviceSize get_uniform_offset(MOJOSHADER_vkShader *shader)
 {
     if (shader == NULL || shader->ubo == NULL)
     {
@@ -374,7 +374,7 @@ static unsigned long get_uniform_offset(MOJOSHADER_vkShader *shader)
     return shader->ubo->internalOffset;
 } // get_uniform_offset
 
-static unsigned long get_uniform_size(MOJOSHADER_vkShader *shader)
+static VkDeviceSize get_uniform_size(MOJOSHADER_vkShader *shader)
 {
     if (shader == NULL || shader->ubo == NULL)
     {
@@ -775,8 +775,8 @@ void MOJOSHADER_vkUnmapUniformBufferMemory()
 } // MOJOSHADER_vkUnmapUniformBufferMemory
 
 void MOJOSHADER_vkGetUniformBuffers(
-    void **vbuf, unsigned long *voff, unsigned long *vsize,
-    void **pbuf, unsigned long *poff, unsigned long *psize
+    void **vbuf, unsigned long long *voff, unsigned long long *vsize,
+    void **pbuf, unsigned long long *poff, unsigned long long *psize
 ) {
     *vbuf = get_uniform_buffer(ctx->vertexShader);
     *voff = get_uniform_offset(ctx->vertexShader);
