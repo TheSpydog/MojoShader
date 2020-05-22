@@ -56,7 +56,7 @@ typedef struct MOJOSHADER_vkBufferWrapper
     VkDeviceMemory device_memory;
     VkDeviceSize offset;
     VkDeviceSize size;
-    void **data;
+    void *persistentMap;
 } MOJOSHADER_vkBufferWrapper;
 
 struct MOJOSHADER_vkUniformBuffer
@@ -143,6 +143,11 @@ static VkDeviceSize next_highest_alignment(int n)
 
 static void free_buffer_wrapper(MOJOSHADER_vkBufferWrapper *buffer)
 {
+    ctx->vkUnmapMemory(
+        *ctx->logical_device,
+        buffer->device_memory
+    );
+
     ctx->vkFreeMemory(
         *ctx->logical_device,
         buffer->device_memory,
@@ -155,7 +160,6 @@ static void free_buffer_wrapper(MOJOSHADER_vkBufferWrapper *buffer)
         NULL
     );
 
-    ctx->free_fn(buffer->data, ctx->malloc_data);
     ctx->free_fn(buffer, ctx->malloc_data);
 }
 
@@ -189,10 +193,6 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
 
     MOJOSHADER_vkBufferWrapper *newBuffer = ctx->malloc_fn(
         sizeof(MOJOSHADER_vkBufferWrapper), ctx->malloc_data
-    );
-
-    newBuffer->data = ctx->malloc_fn(
-        ubo->internalBufferSize, ctx->malloc_data
     );
 
     newBuffer->size = ubo->internalBufferSize;
@@ -271,6 +271,21 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
         return NULL;
     }
 
+    vulkanResult = ctx->vkMapMemory(
+        *ctx->logical_device,
+        newBuffer->device_memory,
+        0,
+        newBuffer->size,
+        0,
+        &newBuffer->persistentMap
+    );
+
+    if (vulkanResult != VK_SUCCESS)
+    {
+        set_error("error mapping memory in create_ubo_backing_buffer");
+        return NULL;
+    }
+
     /* there is no way to access contents of a VkBuffer directly...
      * we have to wrap the VkBuffer handle and data and copy it
      */
@@ -282,27 +297,16 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
             oldBuffer->offset,
             oldBuffer->size,
             0,
-            oldBuffer->data
+            &newBuffer->persistentMap
         );
-
-        if (vulkanResult != VK_SUCCESS)
-        {
-            set_error("error mapping memory in create_ubo_backing_buffer");
-            return NULL;
-        }
 
         newBuffer->offset = oldBuffer->offset;
         newBuffer->size = oldBuffer->size;
 
         memcpy(
-            newBuffer->data,
-            oldBuffer->data,
+            newBuffer->persistentMap,
+            oldBuffer->persistentMap,
             oldBuffer->size
-        );
-
-        ctx->vkUnmapMemory(
-            *ctx->logical_device,
-            newBuffer->device_memory
         );
 
         free_buffer_wrapper(oldBuffer);
@@ -449,16 +453,6 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
     predraw_ubo(shader->ubo);
     MOJOSHADER_vkBufferWrapper *buf = shader->ubo->internalBuffers[shader->ubo->currentFrame];
-    void *contents = buf->data + shader->ubo->internalOffset;
-
-    ctx->vkMapMemory(
-        *ctx->logical_device,
-        buf->device_memory,
-        buf->offset,
-        buf->size,
-        0,
-        &contents
-    );
 
     int offset = 0;
     for (int i = 0; i < shader->parseData->uniform_count; i++)
@@ -471,7 +465,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
         {
             case MOJOSHADER_UNIFORM_FLOAT:
                 memcpy(
-                    contents + (offset * 16),
+                    (uint8_t*) buf->persistentMap + (offset * 16),
                     &regF[4 * index],
                     size * 16
                 );
@@ -479,7 +473,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
             case MOJOSHADER_UNIFORM_INT:
                 memcpy(
-                    contents + (offset * 16),
+                    (uint8_t*) buf->persistentMap + (offset * 16),
                     &regI[4 * index],
                     size * 16
                 );
@@ -487,7 +481,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
             case MOJOSHADER_UNIFORM_BOOL:
                 memcpy(
-                    contents + offset,
+                    (uint8_t*) buf->persistentMap + offset,
                     &regB[index],
                     size
                 );
@@ -503,11 +497,6 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
         offset += size;
     } // for
-
-    ctx->vkUnmapMemory(
-        *ctx->logical_device,
-        buf->device_memory
-    );
 } // update_uniform_buffer
 
 static void dealloc_ubo(MOJOSHADER_vkShader *shader)
