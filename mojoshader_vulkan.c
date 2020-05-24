@@ -191,7 +191,7 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
 
     MOJOSHADER_vkBufferWrapper *oldBuffer = ubo->internalBuffers[frame];
 
-    MOJOSHADER_vkBufferWrapper *newBuffer = ctx->malloc_fn(
+    MOJOSHADER_vkBufferWrapper *newBuffer = (MOJOSHADER_vkBufferWrapper *) ctx->malloc_fn(
         sizeof(MOJOSHADER_vkBufferWrapper), ctx->malloc_data
     );
 
@@ -342,7 +342,9 @@ static MOJOSHADER_vkUniformBuffer *create_ubo(
     buffer = (MOJOSHADER_vkUniformBuffer*) m(sizeof(MOJOSHADER_vkUniformBuffer), d);
     buffer->bufferSize = next_highest_alignment(buflen);
     buffer->internalBufferSize = ((uint64_t)buffer->bufferSize) * 16;
-    buffer->internalBuffers = m(ctx->frames_in_flight * sizeof(void*), d);
+    buffer->internalBuffers = (MOJOSHADER_vkBufferWrapper **) m(
+        ctx->frames_in_flight * sizeof(void*), d
+    );
     buffer->internalOffset = 0;
     buffer->inUse = 0;
     buffer->currentFrame = 0;
@@ -583,7 +585,7 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     lookup_entry_points(resultCtx);
 
     resultCtx->bufferArrayCapacity = 32;
-    resultCtx->buffersInUse = resultCtx->malloc_fn(
+    resultCtx->buffersInUse = (MOJOSHADER_vkUniformBuffer **) resultCtx->malloc_fn(
         resultCtx->bufferArrayCapacity * sizeof(MOJOSHADER_vkUniformBuffer*),
         resultCtx->malloc_data
     );
@@ -807,11 +809,11 @@ int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
     return -1;
 } //MOJOSHADER_vkGetVertexAttribLocation
 
-void *MOJOSHADER_vkGetShaderModule(MOJOSHADER_vkShader *shader)
+unsigned long long MOJOSHADER_vkGetShaderModule(MOJOSHADER_vkShader *shader)
 {
     if (shader == NULL) { return NULL; }
 
-    return shader->shaderModule;
+    return (unsigned long long) shader->shaderModule;
 } //MOJOSHADER_vkGetShaderModule
 
 const char *MOJOSHADER_vkGetError(void)
