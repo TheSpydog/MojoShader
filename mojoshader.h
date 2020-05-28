@@ -3759,6 +3759,13 @@ DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long long *vo
 DECLSPEC void MOJOSHADER_vkEndFrame();
 
 /*
+ * Frees unused buffers and their associated memory.
+ * 
+ * Always call this after the submitted command buffers have finished executing.
+ */
+DECLSPEC void MOJOSHADER_vkFreeBuffers();
+
+/*
  * Return the location of a vertex attribute for the given shader.
  *
  * (usage) and (index) map to Direct3D vertex declaration values: COLOR1 would
