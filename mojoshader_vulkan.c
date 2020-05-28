@@ -194,9 +194,9 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
     MOJOSHADER_vkBufferWrapper *newBuffer = (MOJOSHADER_vkBufferWrapper *) ctx->malloc_fn(
         sizeof(MOJOSHADER_vkBufferWrapper), ctx->malloc_data
     );
+    SDL_zerop(newBuffer);
 
     newBuffer->size = ubo->internalBufferSize;
-    newBuffer->offset = 0; /* TODO: is this correct? */
 
     VkBufferCreateInfo buffer_create_info = {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
@@ -286,23 +286,8 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
         return NULL;
     }
 
-    /* there is no way to access contents of a VkBuffer directly...
-     * we have to wrap the VkBuffer handle and data and copy it
-     */
     if (oldBuffer != NULL)
     {
-        vulkanResult = ctx->vkMapMemory(
-            *ctx->logical_device,
-            newBuffer->device_memory,
-            oldBuffer->offset,
-            oldBuffer->size,
-            0,
-            &newBuffer->persistentMap
-        );
-
-        newBuffer->offset = oldBuffer->offset;
-        newBuffer->size = oldBuffer->size;
-
         memcpy(
             newBuffer->persistentMap,
             oldBuffer->persistentMap,
@@ -455,6 +440,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
     predraw_ubo(shader->ubo);
     MOJOSHADER_vkBufferWrapper *buf = shader->ubo->internalBuffers[shader->ubo->currentFrame];
+    uint8_t *contents = buf->persistentMap + shader->ubo->internalOffset;
 
     int offset = 0;
     for (int i = 0; i < shader->parseData->uniform_count; i++)
@@ -467,7 +453,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
         {
             case MOJOSHADER_UNIFORM_FLOAT:
                 memcpy(
-                    (uint8_t*) buf->persistentMap + (offset * 16),
+                    contents + (offset * 16),
                     &regF[4 * index],
                     size * 16
                 );
@@ -475,7 +461,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
             case MOJOSHADER_UNIFORM_INT:
                 memcpy(
-                    (uint8_t*) buf->persistentMap + (offset * 16),
+                    contents + (offset * 16),
                     &regI[4 * index],
                     size * 16
                 );
@@ -483,7 +469,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
             case MOJOSHADER_UNIFORM_BOOL:
                 memcpy(
-                    (uint8_t*) buf->persistentMap + offset,
+                    contents + offset,
                     &regB[index],
                     size
                 );
@@ -811,7 +797,7 @@ int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
 
 unsigned long long MOJOSHADER_vkGetShaderModule(MOJOSHADER_vkShader *shader)
 {
-    if (shader == NULL) { return NULL; }
+    if (shader == NULL) { return 0; }
 
     return (unsigned long long) shader->shaderModule;
 } //MOJOSHADER_vkGetShaderModule
