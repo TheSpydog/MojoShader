@@ -117,6 +117,10 @@ typedef struct MOJOSHADER_vkContext
     int bufferArrayCapacity;
     int buffersInUseCount;
 
+    MOJOSHADER_vkBufferWrapper **bufferWrappersToDestroy;
+    int bufferWrappersToDestroyCapacity;
+    int bufferWrappersToDestroyCount;
+
     MOJOSHADER_vkShader *vertexShader;
     MOJOSHADER_vkShader *pixelShader;
 
@@ -139,6 +143,26 @@ static VkDeviceSize next_highest_alignment(int n)
 {
     int align = 256;
     return align * ((n + align - 1) / align);
+}
+
+static void queue_free_buffer_wrapper(MOJOSHADER_vkBufferWrapper *buffer)
+{
+    if (ctx->bufferWrappersToDestroyCount + 1 >= ctx->bufferWrappersToDestroyCapacity)
+    {
+        int oldCapacity = ctx->bufferWrappersToDestroyCapacity;
+        ctx->bufferWrappersToDestroyCapacity *= 2;
+        MOJOSHADER_vkBufferWrapper **tmp;
+        tmp = (MOJOSHADER_vkBufferWrapper**) ctx->malloc_fn(
+            ctx->bufferWrappersToDestroyCapacity * sizeof(MOJOSHADER_vkBufferWrapper*),
+            ctx->malloc_data
+        );
+        memcpy(tmp, ctx->bufferWrappersToDestroy, oldCapacity * sizeof(MOJOSHADER_vkBufferWrapper*));
+        ctx->free_fn(ctx->bufferWrappersToDestroy, ctx->malloc_data);
+        ctx->bufferWrappersToDestroy = tmp;
+    }
+
+    ctx->bufferWrappersToDestroy[ctx->bufferWrappersToDestroyCount] = buffer;
+    ctx->bufferWrappersToDestroyCount++;
 }
 
 static void free_buffer_wrapper(MOJOSHADER_vkBufferWrapper *buffer)
@@ -294,7 +318,7 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
             oldBuffer->size
         );
 
-        free_buffer_wrapper(oldBuffer);
+        queue_free_buffer_wrapper(oldBuffer);
     } // if
 
     return newBuffer;
@@ -493,7 +517,7 @@ static void dealloc_ubo(MOJOSHADER_vkShader *shader)
 
     for (int i = 0; i < ctx->frames_in_flight; i++)
     {
-        free_buffer_wrapper(shader->ubo->internalBuffers[i]);
+        queue_free_buffer_wrapper(shader->ubo->internalBuffers[i]);
         shader->ubo->internalBuffers[i] = NULL;
     }
 
@@ -571,11 +595,18 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     lookup_entry_points(resultCtx);
 
     resultCtx->bufferArrayCapacity = 32;
-    resultCtx->buffersInUse = (MOJOSHADER_vkUniformBuffer **) resultCtx->malloc_fn(
+    resultCtx->buffersInUseCount = 0;
+    resultCtx->buffersInUse = (MOJOSHADER_vkUniformBuffer**) resultCtx->malloc_fn(
         resultCtx->bufferArrayCapacity * sizeof(MOJOSHADER_vkUniformBuffer*),
         resultCtx->malloc_data
     );
-    resultCtx->buffersInUseCount = 0;
+
+    resultCtx->bufferWrappersToDestroyCapacity = 16;
+    resultCtx->bufferWrappersToDestroyCount = 0;
+    resultCtx->bufferWrappersToDestroy = (MOJOSHADER_vkBufferWrapper**) resultCtx->malloc_fn(
+        resultCtx->bufferWrappersToDestroyCapacity * sizeof(MOJOSHADER_vkBufferWrapper*),
+        resultCtx->malloc_data
+    );
 
     return resultCtx;
 
@@ -775,6 +806,16 @@ void MOJOSHADER_vkEndFrame()
 
     ctx->buffersInUseCount = 0;
 } // MOJOSHADER_VkEndFrame
+
+void MOJOSHADER_vkFreeBuffers()
+{
+    for (int i = 0; i < ctx->bufferWrappersToDestroyCount; i++)
+    {
+        free_buffer_wrapper(ctx->bufferWrappersToDestroy[i]);
+    } // for 
+
+    ctx->bufferWrappersToDestroyCount = 0;
+}
 
 int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
                                          MOJOSHADER_usage usage, int index)
