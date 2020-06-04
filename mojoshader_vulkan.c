@@ -464,7 +464,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
 
     predraw_ubo(shader->ubo);
     MOJOSHADER_vkBufferWrapper *buf = shader->ubo->internalBuffers[shader->ubo->currentFrame];
-    uint8_t *contents = buf->persistentMap + shader->ubo->internalOffset;
+    uint8_t *contents = ((uint8_t*)buf->persistentMap) + shader->ubo->internalOffset;
 
     int offset = 0;
     for (int i = 0; i < shader->parseData->uniform_count; i++)
