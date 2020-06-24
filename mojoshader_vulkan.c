@@ -218,7 +218,7 @@ static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
     MOJOSHADER_vkBufferWrapper *newBuffer = (MOJOSHADER_vkBufferWrapper *) ctx->malloc_fn(
         sizeof(MOJOSHADER_vkBufferWrapper), ctx->malloc_data
     );
-    SDL_zerop(newBuffer);
+    memset(newBuffer, '\0', sizeof(MOJOSHADER_vkBufferWrapper));
 
     newBuffer->size = ubo->internalBufferSize;
 
