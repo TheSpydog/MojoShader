@@ -396,7 +396,7 @@ static VkDeviceSize get_uniform_size(MOJOSHADER_vkShader *shader)
         return 0;
     }
 
-    return shader->ubo->internalBufferSize;
+    return shader->ubo->bufferSize;
 }
 
 static void predraw_ubo(MOJOSHADER_vkUniformBuffer *ubo)
