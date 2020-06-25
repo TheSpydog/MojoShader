@@ -3580,6 +3580,8 @@ DECLSPEC MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(MOJOSHADER_VkInstance 
                                                           PFN_MOJOSHADER_vkGetInstanceProcAddr instance_lookup,
                                                           PFN_MOJOSHADER_vkGetDeviceProcAddr lookup,
                                                           unsigned int graphics_queue_family_index,
+                                                          unsigned int max_uniform_buffer_range,
+                                                          unsigned int min_uniform_buffer_offset_alignment,
                                                           MOJOSHADER_malloc m, MOJOSHADER_free f,
                                                           void *malloc_d);
 
@@ -3748,8 +3750,8 @@ DECLSPEC void MOJOSHADER_vkUnmapUniformBufferMemory();
  * This call requires a valid MOJOSHADER_vkContext to have been made current,
  *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
  */
-DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long long *voff, unsigned long long *vsize,
-                                             void **pbuf, unsigned long long *poff, unsigned long long *psize); 
+DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long long *voff, unsigned long long *vdynamicoff, unsigned long long *vsize,
+                                             void **pbuf, unsigned long long *poff, unsigned long long *pdynamicoff, unsigned long long *psize); 
 
 /*
  * Swaps uniform buffers and resets offsets to prepare for the next frame.
