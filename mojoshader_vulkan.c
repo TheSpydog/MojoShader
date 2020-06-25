@@ -208,8 +208,7 @@ static uint8_t find_memory_type(
 static uint32_t next_highest_offset_alignment(
     unsigned int offset
 ) {
-    if (offset == 0) { return 0; }
-    return offset + (ctx->minUniformBufferOffsetAlignment - (offset % ctx->minUniformBufferOffsetAlignment));
+    return (offset + ctx->minUniformBufferOffsetAlignment - 1) / ctx->minUniformBufferOffsetAlignment * ctx->minUniformBufferOffsetAlignment;
 }
 
 static MOJOSHADER_vkBufferWrapper *create_ubo_backing_buffer(
@@ -354,7 +353,7 @@ static MOJOSHADER_vkUniformBuffer *create_ubo(
 
     MOJOSHADER_vkUniformBuffer *buffer;
     buffer = (MOJOSHADER_vkUniformBuffer*) m(sizeof(MOJOSHADER_vkUniformBuffer), d);
-    buffer->bufferSize = ctx->maxUniformBufferRange;
+    buffer->bufferSize = next_highest_offset_alignment(Min(buflen * 16, ctx->maxUniformBufferRange));
     buffer->internalBufferSize = ((uint64_t)buffer->bufferSize) * 4;
     buffer->internalBuffers = (MOJOSHADER_vkBufferWrapper **) m(
         ctx->frames_in_flight * sizeof(void*), d
@@ -469,7 +468,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
             ubo->dynamicOffset = 0;
 
             /* allocate more memory if needed */
-            if (ubo->internalOffset >= ubo->internalBufferSize)
+            if (ubo->internalOffset + ubo->bufferSize >= ubo->internalBufferSize)
             {
                 ubo->internalBufferSize *= 2;
             }
@@ -480,7 +479,7 @@ static void update_uniform_buffer(MOJOSHADER_vkShader *shader)
     }
 
     MOJOSHADER_vkBufferWrapper *buf = shader->ubo->internalBuffers[ubo->currentFrame];
-    uint8_t *contents = ((uint8_t*)buf->persistentMap) + ubo->dynamicOffset;
+    uint8_t *contents = ((uint8_t*)buf->persistentMap) + ubo->internalOffset + ubo->dynamicOffset;
 
     ubo->nextDynamicOffsetIncrement = 0;
     int offset = 0;
