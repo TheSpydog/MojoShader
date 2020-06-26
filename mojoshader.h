@@ -3754,18 +3754,11 @@ DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long long *vo
                                              void **pbuf, unsigned long long *poff, unsigned long long *psize); 
 
 /*
- * Swaps uniform buffers and resets offsets to prepare for the next frame.
+ * Prepares uniform buffers for reuse.
  *
  * Always call this after submitting the final command buffer for a frame!
  */
 DECLSPEC void MOJOSHADER_vkEndFrame();
-
-/*
- * Frees unused buffers and their associated memory.
- * 
- * Always call this after the submitted command buffers have finished executing.
- */
-DECLSPEC void MOJOSHADER_vkFreeBuffers();
 
 /*
  * Return the location of a vertex attribute for the given shader.
