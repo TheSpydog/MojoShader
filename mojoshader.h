@@ -3750,8 +3750,12 @@ DECLSPEC void MOJOSHADER_vkUnmapUniformBufferMemory();
  * This call requires a valid MOJOSHADER_vkContext to have been made current,
  *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
  */
-DECLSPEC void MOJOSHADER_vkGetUniformBuffers(void **vbuf, unsigned long long *voff, unsigned long long *vsize,
-                                             void **pbuf, unsigned long long *poff, unsigned long long *psize); 
+DECLSPEC void MOJOSHADER_vkGetUniformBuffers(unsigned long long *vbuf,
+                                             unsigned long long *voff,
+                                             unsigned long long *vsize,
+                                             unsigned long long *pbuf,
+                                             unsigned long long *poff,
+                                             unsigned long long *psize);
 
 /*
  * Prepares uniform buffers for reuse.
@@ -3773,7 +3777,8 @@ DECLSPEC void MOJOSHADER_vkEndFrame();
  *  or it will crash your program. See MOJOSHADER_vkMakeContextCurrent().
  */
 DECLSPEC int MOJOSHADER_vkGetVertexAttribLocation(MOJOSHADER_vkShader *vert,
-                                                  MOJOSHADER_usage usage, int index);
+                                                  MOJOSHADER_usage usage,
+                                                  int index);
 
 /*
  * Get the VkShaderModule from the given MOJOSHADER_vkShader.

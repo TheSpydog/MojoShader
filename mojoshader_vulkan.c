@@ -168,7 +168,7 @@ static MOJOSHADER_vkUniformBuffer *create_ubo(
     MOJOSHADER_malloc m,
     void* d
 ) {
-    MOJOSHADER_vkUniformBuffer *result = m(sizeof(MOJOSHADER_vkUniformBuffer), d);
+    MOJOSHADER_vkUniformBuffer *result = (MOJOSHADER_vkUniformBuffer *) m(sizeof(MOJOSHADER_vkUniformBuffer), d);
     VkBufferCreateInfo bufferCreateInfo = {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
     };
@@ -214,7 +214,7 @@ static unsigned int uniform_data_size(MOJOSHADER_vkShader *shader)
     return buflen;
 }
 
-static void *get_uniform_buffer(MOJOSHADER_vkShader *shader)
+static unsigned long long get_uniform_buffer(MOJOSHADER_vkShader *shader)
 {
     if (shader == NULL || shader->parseData->uniform_count == 0)
     {
@@ -487,7 +487,7 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     /* allocate vert UBO */
 
     resultCtx->vertUboCurrentIndex = 0;
-    resultCtx->vertUboBuffers = m(sizeof(MOJOSHADER_vkUniformBuffer*) * resultCtx->uboBufferCount, malloc_d);
+    resultCtx->vertUboBuffers = (MOJOSHADER_vkUniformBuffer**) m(sizeof(MOJOSHADER_vkUniformBuffer*) * resultCtx->uboBufferCount, malloc_d);
 
     for (int i = 0; i < resultCtx->uboBufferCount; i++)
     {
@@ -540,7 +540,7 @@ MOJOSHADER_vkContext *MOJOSHADER_vkCreateContext(
     /* allocate frag UBO */
 
     resultCtx->fragUboCurrentIndex = 0;
-    resultCtx->fragUboBuffers = m(sizeof(MOJOSHADER_vkUniformBuffer*) * resultCtx->uboBufferCount, malloc_d);
+    resultCtx->fragUboBuffers = (MOJOSHADER_vkUniformBuffer**) m(sizeof(MOJOSHADER_vkUniformBuffer*) * resultCtx->uboBufferCount, malloc_d);
 
     for (int i = 0; i < resultCtx->uboBufferCount; i++)
     {
@@ -796,8 +796,8 @@ void MOJOSHADER_vkUnmapUniformBufferMemory()
 } // MOJOSHADER_vkUnmapUniformBufferMemory
 
 void MOJOSHADER_vkGetUniformBuffers(
-    void **vbuf, unsigned long long *voff, unsigned long long *vsize,
-    void **pbuf, unsigned long long *poff, unsigned long long *psize
+    unsigned long long *vbuf, unsigned long long *voff, unsigned long long *vsize,
+    unsigned long long *pbuf, unsigned long long *poff, unsigned long long *psize
 ) {
     *vbuf = get_uniform_buffer(ctx->vertexShader);
     *voff = get_uniform_offset(ctx->vertexShader);
